@@ -1,10 +1,10 @@
 import React from 'react';
-import { Activity, Database, CheckCircle, Server, AlertTriangle, Settings, ShieldCheck, Zap } from 'lucide-react';
+import { Activity, Database, CheckCircle, Server, AlertTriangle, Settings, ShieldCheck, Zap, Terminal, Copy } from 'lucide-react';
 
 export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50 p-8 font-sans">
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="max-w-5xl mx-auto space-y-6">
         
         {/* Header */}
         <header className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex justify-between items-center">
@@ -26,8 +26,8 @@ export default function Dashboard() {
           <Card 
             icon={<Database className="w-6 h-6 text-emerald-600" />}
             title="Source"
-            value="Supabase"
-            subtitle="Trigger: Webhook (Insert/Update)"
+            value="Supabase (SQL)"
+            subtitle="Trigger: Custom pg_net Function"
           />
            <Card 
             icon={<Server className="w-6 h-6 text-indigo-600" />}
@@ -48,14 +48,14 @@ export default function Dashboard() {
           
           {/* Migration Status */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Migration Status</h2>
-            <div className="space-y-4">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">System Status</h2>
+            <div className="grid md:grid-cols-2 gap-4">
               <div className="flex items-start gap-4 p-4 rounded-lg bg-gray-50 border border-gray-200">
                 <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
                 <div>
-                  <h3 className="font-medium text-gray-900">Logic Ported</h3>
+                  <h3 className="font-medium text-gray-900">Smart Change Detection</h3>
                   <p className="text-sm text-gray-600">
-                    Phone normalization, Email hashing, and ID Fallback (LeadID/Phone/Email) active.
+                    API logic is ready to receive <code>old_record</code> and detect changes in Status or Date.
                   </p>
                 </div>
               </div>
@@ -64,7 +64,7 @@ export default function Dashboard() {
                 <div>
                   <h3 className="font-medium text-gray-900">Deduplication</h3>
                   <p className="text-sm text-gray-600">
-                    Using <code>eventos_enviados_meta</code> table as the source of truth.
+                    Events are deduplicated using <code>eventos_enviados_meta</code> table.
                   </p>
                 </div>
               </div>
@@ -72,66 +72,117 @@ export default function Dashboard() {
           </div>
 
           {/* Webhook Configuration Guide */}
-          <div className="bg-white rounded-xl shadow-sm border border-blue-100 p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <Settings className="w-6 h-6 text-blue-600" />
-              <h2 className="text-lg font-semibold text-gray-900">Supabase Webhook Configuration</h2>
+          <div className="bg-white rounded-xl shadow-sm border border-blue-100 overflow-hidden">
+            <div className="p-6 border-b border-blue-100 bg-blue-50/50">
+              <div className="flex items-center gap-2 mb-1">
+                <Settings className="w-6 h-6 text-blue-600" />
+                <h2 className="text-lg font-semibold text-gray-900">Database Trigger Configuration</h2>
+              </div>
+              <p className="text-sm text-blue-800">
+                This SQL configuration is <strong>active</strong> and correctly implements the "Broad Listen, Strict Filter" strategy.
+              </p>
             </div>
 
-            <div className="space-y-4">
-               <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
-                <h3 className="font-medium text-blue-900 mb-2">1. Endpoint URL</h3>
-                <code className="block bg-white text-blue-800 p-3 rounded border border-blue-200 text-xs font-mono break-all">
-                  POST https://[YOUR_VERCEL_DOMAIN]/api/webhook/meta?secret=[YOUR_SECRET]
-                </code>
-              </div>
-
+            <div className="p-6 space-y-6">
+              
+              {/* Logic Explanation */}
               <div className="grid md:grid-cols-2 gap-4">
+                <div className="p-4 rounded-lg bg-emerald-50 border border-emerald-200">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Zap className="w-4 h-4 text-emerald-600" />
+                    <h3 className="font-semibold text-sm text-emerald-900">Why this SQL is correct:</h3>
+                  </div>
+                  <ul className="list-disc list-inside text-xs text-emerald-800 space-y-1">
+                    <li>Uses <code>IS DISTINCT FROM</code> for safe comparison (handles NULLs).</li>
+                    <li>Sends <code>old_record</code> so Vercel can validate changes accurately.</li>
+                    <li>Filters locally in DB, saving Vercel execution costs.</li>
+                  </ul>
+                </div>
+
                 <div className="p-4 rounded-lg bg-amber-50 border border-amber-200">
                   <div className="flex items-center gap-2 mb-2">
-                    <AlertTriangle className="w-5 h-5 text-amber-600" />
-                    <h3 className="font-medium text-amber-900">2. NO Value Filters</h3>
+                    <AlertTriangle className="w-4 h-4 text-amber-600" />
+                    <h3 className="font-semibold text-sm text-amber-900">Important:</h3>
                   </div>
-                  <p className="text-sm text-amber-800 mb-3">
-                    <strong>Critical:</strong> Do not add `WHERE` clauses.
-                  </p>
-                  <p className="text-xs text-amber-700 bg-amber-100 p-2 rounded mb-2">
-                    Leave the "When to trigger" condition <strong>EMPTY</strong>.
-                  </p>
-                  <p className="text-xs text-amber-800">
-                    We want the API to receive ALL status changes, then decide via code what to ignore. This prevents "silent failures".
-                  </p>
-                </div>
-
-                <div className="p-4 rounded-lg bg-indigo-50 border border-indigo-200">
-                  <div className="flex items-center gap-2 mb-2">
-                    <ShieldCheck className="w-5 h-5 text-indigo-600" />
-                    <h3 className="font-medium text-indigo-900">3. Column Triggers</h3>
-                  </div>
-                  <p className="text-sm text-indigo-800 mb-3">
-                    To reduce noise, trigger the webhook ONLY when these columns change:
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <code className="px-2 py-1 bg-white rounded text-xs border border-indigo-200 font-mono text-indigo-700">estado_lead</code>
-                    <code className="px-2 py-1 bg-white rounded text-xs border border-indigo-200 font-mono text-indigo-700">fecha_conversion</code>
-                  </div>
+                  <ul className="list-disc list-inside text-xs text-amber-800 space-y-1">
+                    <li>Ensure <code>pg_net</code> extension is enabled in Supabase.</li>
+                    <li><strong>Delete any UI-created webhooks</strong> to avoid double events.</li>
+                  </ul>
                 </div>
               </div>
 
-              {/* Database Automation Section - Addressing User's Specific Setup */}
-              <div className="p-4 rounded-lg bg-emerald-50 border border-emerald-200">
-                <div className="flex items-center gap-2 mb-2">
-                  <Zap className="w-5 h-5 text-emerald-600" />
-                  <h3 className="font-medium text-emerald-900">4. Database Automation (Your Setup)</h3>
+              {/* SQL Code Block */}
+              <div className="rounded-lg overflow-hidden border border-gray-200 bg-gray-900">
+                <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
+                  <span className="text-xs font-mono text-gray-400 flex items-center gap-2">
+                    <Terminal className="w-3 h-3" />
+                    Supabase SQL Editor
+                  </span>
+                  <span className="text-xs text-gray-500">notify_vercel_webhook.sql</span>
                 </div>
-                <p className="text-sm text-emerald-800 mb-2">
-                  Using a DB Trigger to auto-update <code>fecha_conversion</code> when <code>estado_lead</code> changes is <strong>excellent</strong>.
-                </p>
-                <ul className="list-disc list-inside text-xs text-emerald-700 space-y-1 ml-1">
-                  <li>It ensures exact timestamps for conversions.</li>
-                  <li>The Webhook (listening to <code>fecha_conversion</code>) will correctly pick up these auto-updates.</li>
-                  <li>Monitoring <code>estado_lead</code> ensures we catch the status change itself.</li>
-                </ul>
+                <div className="p-4 overflow-x-auto">
+                  <pre className="text-xs font-mono text-blue-300 leading-relaxed">
+{`-- 1. Verify extension
+CREATE EXTENSION IF NOT EXISTS pg_net;
+
+-- 2. Create Function
+CREATE OR REPLACE FUNCTION notify_vercel_webhook()
+RETURNS TRIGGER AS $$
+DECLARE
+  webhook_url TEXT := 'https://leads-meta-landing-jw6g.vercel.app/api/webhook/meta?secret=2828554491';
+  payload JSONB;
+BEGIN
+  -- CASE 1: INSERT (Always Send)
+  IF TG_OP = 'INSERT' THEN
+    payload := jsonb_build_object(
+      'type', TG_OP,
+      'table', TG_TABLE_NAME,
+      'record', row_to_json(NEW),
+      'old_record', NULL
+    );
+    
+    PERFORM net.http_post(
+      url := webhook_url,
+      headers := '{"Content-Type": "application/json"}'::jsonb,
+      body := payload::text
+    );
+    RETURN NEW;
+  END IF;
+
+  -- CASE 2: UPDATE (Send only if critical columns change)
+  IF TG_OP = 'UPDATE' THEN
+    IF (OLD.estado_lead IS DISTINCT FROM NEW.estado_lead) OR 
+       (OLD.fecha_conversion IS DISTINCT FROM NEW.fecha_conversion) THEN
+      
+      payload := jsonb_build_object(
+        'type', TG_OP,
+        'table', TG_TABLE_NAME,
+        'record', row_to_json(NEW),
+        'old_record', row_to_json(OLD) 
+      );
+      
+      PERFORM net.http_post(
+        url := webhook_url,
+        headers := '{"Content-Type": "application/json"}'::jsonb,
+        body := payload::text
+      );
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 3. Create Trigger
+DROP TRIGGER IF EXISTS trigger_notify_vercel ON leads_formularios_optimizada;
+
+CREATE TRIGGER trigger_notify_vercel
+  AFTER INSERT OR UPDATE ON leads_formularios_optimizada
+  FOR EACH ROW
+  EXECUTE FUNCTION notify_vercel_webhook();`}
+                  </pre>
+                </div>
               </div>
 
             </div>
