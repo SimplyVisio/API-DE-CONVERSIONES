@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Database, CheckCircle, Server, AlertTriangle, Settings, ShieldCheck } from 'lucide-react';
+import { Activity, Database, CheckCircle, Server, AlertTriangle, Settings, ShieldCheck, Zap } from 'lucide-react';
 
 const App: React.FC = () => {
   return (
@@ -90,13 +90,16 @@ const App: React.FC = () => {
                 <div className="p-4 rounded-lg bg-amber-50 border border-amber-200">
                   <div className="flex items-center gap-2 mb-2">
                     <AlertTriangle className="w-5 h-5 text-amber-600" />
-                    <h3 className="font-medium text-amber-900">2. No Value Filters</h3>
+                    <h3 className="font-medium text-amber-900">2. NO Value Filters</h3>
                   </div>
                   <p className="text-sm text-amber-800 mb-3">
-                    <strong>Do NOT add logic in Supabase.</strong> Leave the "WHEN" condition in your trigger empty.
+                    <strong>Critical:</strong> Do not add `WHERE` clauses.
                   </p>
-                  <p className="text-xs text-amber-700 bg-amber-100 p-2 rounded">
-                    Example: Do NOT filter <code>WHERE estado_lead = 'Venta'</code>. Send everything; let the API decide what to ignore.
+                  <p className="text-xs text-amber-700 bg-amber-100 p-2 rounded mb-2">
+                    Leave the "When to trigger" condition <strong>EMPTY</strong>.
+                  </p>
+                  <p className="text-xs text-amber-800">
+                    We want the API to receive ALL status changes, then decide via code what to ignore. This prevents "silent failures".
                   </p>
                 </div>
 
@@ -114,6 +117,23 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {/* Database Automation Section - Addressing User's Specific Setup */}
+              <div className="p-4 rounded-lg bg-emerald-50 border border-emerald-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <Zap className="w-5 h-5 text-emerald-600" />
+                  <h3 className="font-medium text-emerald-900">4. Database Automation (Your Setup)</h3>
+                </div>
+                <p className="text-sm text-emerald-800 mb-2">
+                  Using a DB Trigger to auto-update <code>fecha_conversion</code> when <code>estado_lead</code> changes is <strong>excellent</strong>.
+                </p>
+                <ul className="list-disc list-inside text-xs text-emerald-700 space-y-1 ml-1">
+                  <li>It ensures exact timestamps for conversions.</li>
+                  <li>The Webhook (listening to <code>fecha_conversion</code>) will correctly pick up these auto-updates.</li>
+                  <li>Monitoring <code>estado_lead</code> ensures we catch the status change itself.</li>
+                </ul>
+              </div>
+
             </div>
           </div>
 
