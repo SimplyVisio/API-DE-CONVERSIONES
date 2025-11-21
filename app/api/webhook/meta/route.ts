@@ -4,7 +4,7 @@ import { Lead, MetaEventPayload } from '@/types';
 import { EVENT_MAPPING, CONFIG } from '@/lib/constants';
 import * as utils from '@/lib/utils';
 
-// Initialize Supabase Admin Client (needed for write access to protected tables if any)
+// Initialize Supabase Admin Client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY!;
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -25,16 +25,40 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Parse Webhook Payload from Supabase
-    // Supabase sends { type: 'INSERT' | 'UPDATE', table: '...', record: { ... }, old_record: { ... } }
     const body = await req.json();
-    const lead: Lead = body.record;
+    
+    // Extract records and type
+    // Supabase sends: { type: 'INSERT' | 'UPDATE', record: { ... }, old_record: { ... } }
+    const { type, record: lead, old_record } = body;
 
-    if (!lead || !lead.lead_id) {
-      return NextResponse.json({ message: 'No lead record found in payload' }, { status: 400 });
+    // --- ID FALLBACK STRATEGY ---
+    // Social leads (WhatsApp/Messenger) might not have a formal 'lead_id' yet.
+    // We prioritize: lead_id -> telefono -> email
+    const effectiveId = lead?.lead_id || lead?.telefono || lead?.email;
+
+    if (!lead || !effectiveId) {
+      return NextResponse.json({ message: 'Ignored: No identifying data (lead_id, phone, or email)' }, { status: 200 }); // 200 to stop retries
     }
 
-    // 3. Logic: Should we send this event?
-    // Check Status Mapping
+    // 3. SMART CHANGE DETECTION
+    if (type === 'UPDATE' && old_record) {
+      
+      const statusChanged = lead.estado_lead !== old_record.estado_lead;
+      
+      // Compare dates carefully
+      const newDate = lead.fecha_conversion ? new Date(lead.fecha_conversion).getTime() : 0;
+      const oldDate = old_record.fecha_conversion ? new Date(old_record.fecha_conversion).getTime() : 0;
+      const dateChanged = newDate !== oldDate;
+
+      if (!statusChanged && !dateChanged) {
+        return NextResponse.json({ 
+          message: 'Ignored: No change in estado_lead or fecha_conversion',
+          skipped: true 
+        }, { status: 200 });
+      }
+    }
+
+    // 4. Logic: Should we send this event?
     const eventInfo = EVENT_MAPPING[lead.estado_lead];
     if (!eventInfo) {
       return NextResponse.json({ message: `Status '${lead.estado_lead}' not mapped to an event` });
@@ -46,16 +70,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: 'Skipped: Low Score' });
     }
 
-    // Determine Conversion Date
     const conversionDate = lead.fecha_conversion || lead.updated_at || lead.created_at;
+    
     if (utils.isTooOld(conversionDate, CONFIG.MAX_EVENT_AGE_DAYS)) {
       return NextResponse.json({ message: 'Skipped: Event too old' });
     }
 
-    // 4. Generate Event ID
-    const eventId = utils.generateEventId(lead.lead_id, lead.estado_lead, conversionDate);
+    // 5. Generate Event ID using the Effective ID
+    // This ensures that even if lead_id is missing, we generate a consistent hash based on phone/email
+    const eventId = utils.generateEventId(effectiveId, lead.estado_lead, conversionDate);
 
-    // 5. Deduplication: Check 'eventos_enviados_meta' table in Supabase
+    // 6. Deduplication
     const { data: existingEvent } = await supabase
       .from('eventos_enviados_meta')
       .select('event_id')
@@ -63,22 +88,21 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (existingEvent) {
-      return NextResponse.json({ message: 'Skipped: Event already sent (Deduplicated)' });
+      return NextResponse.json({ message: 'Skipped: Event already sent (Deduplicated in DB)' });
     }
 
-    // 6. Prepare Data for Meta (Ported from DataProcessor.py)
+    // 7. Prepare Data for Meta
     const userData: any = {};
     
-    // Hash PII
     const email = utils.normalizeEmail(lead.email);
     if (email) userData.em = [utils.hashData(email)];
     
     const phone = utils.normalizePhone(lead.telefono);
     if (phone) userData.ph = [utils.hashData(phone)];
     
-    userData.external_id = [utils.hashData(lead.lead_id)];
+    // Use effectiveId for external_id to ensure we always have one
+    userData.external_id = [utils.hashData(effectiveId)];
 
-    // Non-hashed technical data
     if (lead.direccion_ip) userData.client_ip_address = lead.direccion_ip;
     if (lead.user_agent) userData.client_user_agent = lead.user_agent;
     
@@ -86,7 +110,6 @@ export async function POST(req: NextRequest) {
     if (lead.fbp) {
       userData.fbp = lead.fbp;
     } else if (lead.client_id) {
-      // Fallback construction from client_id
       const ts = lead.created_at ? utils.toUnixTimestamp(lead.created_at) : '';
       userData.fbp = ts ? `fb.1.${ts}.${lead.client_id}` : `fb.1.${lead.client_id}`;
     }
@@ -97,12 +120,11 @@ export async function POST(req: NextRequest) {
        userData.fbc = `fb.1.${nowTs}.${lead.fbclid}`;
     }
 
-    // Name & Location
     const { firstName, lastName } = utils.extractNames(lead.nombre);
     if (firstName) userData.fn = [utils.hashData(firstName.toLowerCase())];
     if (lastName) userData.ln = [utils.hashData(lastName.toLowerCase())];
 
-    const city = utils.normalizeLocation(lead.estado); // Assuming 'estado' holds location roughly
+    const city = utils.normalizeLocation(lead.estado);
     if (city) {
       const hashedLoc = utils.hashData(city);
       userData.ct = [hashedLoc];
@@ -128,7 +150,7 @@ export async function POST(req: NextRequest) {
     if (lead.nombre_campana) customData.campaign_name = lead.nombre_campana;
     if (lead.score_lead) customData.predicted_ltv = lead.score_lead;
 
-    // 7. Send to Meta API
+    // 8. Send to Meta API
     const payload: MetaEventPayload = {
       data: [{
         event_name: eventInfo.event_name,
@@ -152,20 +174,22 @@ export async function POST(req: NextRequest) {
 
     if (!metaResponse.ok) {
       console.error('Meta API Error:', metaResult);
-      // Log error to Supabase
-      await supabase.from('leads_formularios_optimizada')
-        .update({ error_meta: `Meta API Error: ${metaResult.error?.message || 'Unknown'}` })
-        .eq('lead_id', lead.lead_id);
+      // Try to log error, using effectiveId if lead_id is missing but making sure it fits column type if necessary
+      // Assuming lead_id column is string.
+      if (lead.lead_id) {
+        await supabase.from('leads_formularios_optimizada')
+          .update({ error_meta: `Meta API Error: ${metaResult.error?.message || 'Unknown'}` })
+          .eq('lead_id', lead.lead_id);
+      }
         
       return NextResponse.json({ error: 'Meta API Failed', details: metaResult }, { status: 500 });
     }
 
-    // 8. Success: Update Supabase Tables
+    // 9. Success: Update Supabase Tables
     
-    // A. Record in Deduplication Table
     await supabase.from('eventos_enviados_meta').insert({
       event_id: eventId,
-      lead_id: lead.lead_id,
+      lead_id: effectiveId, // Stores the ID used (could be phone/email if lead_id was null)
       estado_lead: lead.estado_lead,
       event_name: eventInfo.event_name,
       value: eventInfo.value,
@@ -173,19 +197,20 @@ export async function POST(req: NextRequest) {
       fecha_conversion: conversionDate
     });
 
-    // B. Mark Lead as Sent
-    await supabase.from('leads_formularios_optimizada')
-      .update({ 
-        enviado_meta: true,
-        error_meta: null, // clear previous errors
-        updated_at: new Date().toISOString()
-      })
-      .eq('lead_id', lead.lead_id);
+    if (lead.lead_id) {
+      await supabase.from('leads_formularios_optimizada')
+        .update({ 
+          error_meta: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('lead_id', lead.lead_id);
+    }
 
     return NextResponse.json({ 
       success: true, 
       eventId, 
-      events_received: metaResult.events_received 
+      events_received: metaResult.events_received,
+      used_id: effectiveId // Helpful for debugging
     });
 
   } catch (error: any) {

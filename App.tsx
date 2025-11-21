@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Database, CheckCircle, XCircle, Server } from 'lucide-react';
+import { Activity, Database, CheckCircle, Server, AlertTriangle, Settings, ShieldCheck } from 'lucide-react';
 
 const App: React.FC = () => {
   return (
@@ -44,43 +44,79 @@ const App: React.FC = () => {
         </div>
 
         {/* Instructions */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Migration Status & Setup</h2>
+        <div className="space-y-6">
           
-          <div className="space-y-4">
-            <div className="flex items-start gap-4 p-4 rounded-lg bg-gray-50 border border-gray-200">
-              <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
-              <div>
-                <h3 className="font-medium text-gray-900">Python Logic Migrated</h3>
-                <p className="text-sm text-gray-600">
-                  Phone normalization, Email hashing (SHA256), and Event Mapping have been ported to TypeScript/Node.js.
-                </p>
+          {/* Migration Status */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Migration Status</h2>
+            <div className="space-y-4">
+              <div className="flex items-start gap-4 p-4 rounded-lg bg-gray-50 border border-gray-200">
+                <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
+                <div>
+                  <h3 className="font-medium text-gray-900">Logic Ported</h3>
+                  <p className="text-sm text-gray-600">
+                    Phone normalization, Email hashing, and ID Fallback (LeadID/Phone/Email) active.
+                  </p>
+                </div>
               </div>
-            </div>
-
-            <div className="flex items-start gap-4 p-4 rounded-lg bg-gray-50 border border-gray-200">
-              <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
-              <div>
-                <h3 className="font-medium text-gray-900">Deduplication Storage</h3>
-                <p className="text-sm text-gray-600">
-                  Switched from BigQuery to Supabase table <code>eventos_enviados_meta</code>.
-                </p>
-              </div>
-            </div>
-
-             <div className="flex items-start gap-4 p-4 rounded-lg bg-blue-50 border border-blue-200">
-              <Activity className="w-5 h-5 text-blue-600 mt-0.5" />
-              <div>
-                <h3 className="font-medium text-blue-900">Next Step: Configure Supabase Webhook</h3>
-                <p className="text-sm text-blue-700 mt-1 mb-2">
-                  To enable automatic execution, create a Database Webhook in Supabase:
-                </p>
-                <code className="block bg-blue-900 text-blue-100 p-3 rounded text-xs font-mono overflow-x-auto">
-                  POST https://[YOUR_VERCEL_DOMAIN]/api/webhook/meta?secret=[YOUR_SECRET]
-                </code>
+              <div className="flex items-start gap-4 p-4 rounded-lg bg-gray-50 border border-gray-200">
+                <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
+                <div>
+                  <h3 className="font-medium text-gray-900">Deduplication</h3>
+                  <p className="text-sm text-gray-600">
+                    Using <code>eventos_enviados_meta</code> table as the source of truth.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
+
+          {/* Webhook Configuration Guide */}
+          <div className="bg-white rounded-xl shadow-sm border border-blue-100 p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Settings className="w-6 h-6 text-blue-600" />
+              <h2 className="text-lg font-semibold text-gray-900">Supabase Webhook Configuration</h2>
+            </div>
+
+            <div className="space-y-4">
+               <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
+                <h3 className="font-medium text-blue-900 mb-2">1. Endpoint URL</h3>
+                <code className="block bg-white text-blue-800 p-3 rounded border border-blue-200 text-xs font-mono break-all">
+                  POST https://[YOUR_VERCEL_DOMAIN]/api/webhook/meta?secret=[YOUR_SECRET]
+                </code>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="p-4 rounded-lg bg-amber-50 border border-amber-200">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle className="w-5 h-5 text-amber-600" />
+                    <h3 className="font-medium text-amber-900">2. No Value Filters</h3>
+                  </div>
+                  <p className="text-sm text-amber-800 mb-3">
+                    <strong>Do NOT add logic in Supabase.</strong> Leave the "WHEN" condition in your trigger empty.
+                  </p>
+                  <p className="text-xs text-amber-700 bg-amber-100 p-2 rounded">
+                    Example: Do NOT filter <code>WHERE estado_lead = 'Venta'</code>. Send everything; let the API decide what to ignore.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-lg bg-indigo-50 border border-indigo-200">
+                  <div className="flex items-center gap-2 mb-2">
+                    <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                    <h3 className="font-medium text-indigo-900">3. Column Triggers</h3>
+                  </div>
+                  <p className="text-sm text-indigo-800 mb-3">
+                    To reduce noise, trigger the webhook ONLY when these columns change:
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <code className="px-2 py-1 bg-white rounded text-xs border border-indigo-200 font-mono text-indigo-700">estado_lead</code>
+                    <code className="px-2 py-1 bg-white rounded text-xs border border-indigo-200 font-mono text-indigo-700">fecha_conversion</code>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
 
       </div>
