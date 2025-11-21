@@ -1,0 +1,5 @@
+{
+  "name": "Meta CAPI Sync",
+  "description": "Real-time synchronization between Supabase leads and Meta Conversions API using Vercel Serverless Functions.",
+  "requestFramePermissions": []
+}
