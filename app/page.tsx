@@ -37,18 +37,24 @@ export default function Dashboard() {
     try {
       const res = await fetch('/api/logs');
       
+      // Handle 404 specifically
+      if (res.status === 404) {
+        throw new Error("API Endpoint not found (404). If you just added this feature, please restart your dev server or rebuild the project.");
+      }
+
       // Check if the response is actually JSON
       const contentType = res.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
-        // If we got HTML (like a 404 or 500 page), read it as text to show a better error
         const text = await res.text();
-        console.error("Server returned non-JSON response:", text.substring(0, 100)); // Log first 100 chars
+        console.error("Server returned non-JSON response:", text.substring(0, 100));
         throw new Error(`Server returned unexpected format (${res.status}). Check Vercel logs.`);
       }
 
       const data = await res.json();
       
-      if (!res.ok) throw new Error(data.error || 'Failed to fetch logs');
+      if (!res.ok || data.success === false) {
+        throw new Error(data.error || 'Failed to fetch logs');
+      }
       
       setSuccessLogs(data.data.successLogs);
       setErrorLogs(data.data.errorLogs);
@@ -107,11 +113,16 @@ export default function Dashboard() {
           </div>
 
           {fetchError && (
-            <div className="bg-red-50 text-red-700 p-4 rounded-lg border border-red-200 flex items-center gap-2">
-              <AlertOctagon className="w-5 h-5" />
+            <div className="bg-red-50 text-red-700 p-4 rounded-lg border border-red-200 flex items-start gap-3">
+              <AlertOctagon className="w-5 h-5 mt-0.5 flex-shrink-0" />
               <div>
                 <p className="font-bold">Connection Error</p>
-                <p className="text-sm">{fetchError}</p>
+                <p className="text-sm mb-2">{fetchError}</p>
+                {fetchError.includes("404") && (
+                   <p className="text-xs bg-red-100 p-2 rounded border border-red-200">
+                     <strong>Tip:</strong> The new API route <code>/api/logs</code> was created, but the running server might not see it yet. Try stopping and restarting your server (`npm run dev` or `next dev`).
+                   </p>
+                )}
               </div>
             </div>
           )}
