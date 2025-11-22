@@ -35,12 +35,12 @@ export default function Dashboard() {
     setLoading(true);
     setFetchError(null);
     try {
-      // Add timestamp to prevent browser caching of 404/500 responses
-      const res = await fetch(`/api/logs?_t=${Date.now()}`);
+      // Use the existing webhook route with GET method to avoid "404 Not Found" on new files
+      const res = await fetch(`/api/webhook/meta?_t=${Date.now()}`);
       
       // Handle 404 specifically
       if (res.status === 404) {
-        throw new Error("API Endpoint not found (404). The server hasn't picked up the new file yet.");
+        throw new Error("API Endpoint not found. Ensure '/api/webhook/meta' exists.");
       }
 
       // Check if the response is actually JSON
@@ -48,7 +48,7 @@ export default function Dashboard() {
       if (!contentType || !contentType.includes("application/json")) {
         const text = await res.text();
         console.error("Server returned non-JSON response:", text.substring(0, 100));
-        throw new Error(`Server Error (${res.status}). Check terminal logs for details.`);
+        throw new Error(`Server Error (${res.status}). Check terminal logs.`);
       }
 
       const data = await res.json();
@@ -118,13 +118,7 @@ export default function Dashboard() {
               <AlertOctagon className="w-5 h-5 mt-0.5 flex-shrink-0" />
               <div>
                 <p className="font-bold">Connection Status: Disconnected</p>
-                <p className="text-sm mb-2">{fetchError}</p>
-                {fetchError.includes("404") && (
-                   <p className="text-xs bg-red-100 p-2 rounded border border-red-200 text-red-900">
-                     <strong>Required Action:</strong> The API route <code>/api/logs</code> is not being served. 
-                     <br/>Please stop the server (Ctrl+C) and run <code>npm run dev</code> again to register the new file.
-                   </p>
-                )}
+                <p className="text-sm">{fetchError}</p>
               </div>
             </div>
           )}

@@ -4,6 +4,9 @@ import { Lead, MetaEventPayload } from '@/types';
 import { EVENT_MAPPING, CONFIG } from '@/lib/constants';
 import * as utils from '@/lib/utils';
 
+// FORCE DYNAMIC: Ensure this route is not statically cached
+export const dynamic = 'force-dynamic';
+
 // Initialize Supabase Admin Client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY!;
@@ -13,6 +16,48 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN!;
 const META_PIXEL_ID = process.env.META_PIXEL_ID!;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
+
+/**
+ * GET Handler: Retrieves logs for the Dashboard
+ * Hosted here to avoid '404 Not Found' issues with creating new API routes without server restart.
+ */
+export async function GET(req: NextRequest) {
+  try {
+    // 1. Fetch recent successful events
+    const { data: successLogs, error: successError } = await supabase
+      .from('eventos_enviados_meta')
+      .select('*')
+      .order('sent_at', { ascending: false })
+      .limit(20);
+
+    // 2. Fetch recent errors (Leads with error_meta not null)
+    const { data: errorLogs, error: errorLogsError } = await supabase
+      .from('leads_formularios_optimizada')
+      .select('lead_id, nombre, email, estado_lead, error_meta, updated_at')
+      .not('error_meta', 'is', null)
+      .order('updated_at', { ascending: false })
+      .limit(20);
+
+    if (successError) console.error('Supabase Success Log Error:', successError);
+    if (errorLogsError) console.error('Supabase Error Log Error:', errorLogsError);
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        successLogs: successLogs || [],
+        errorLogs: errorLogs || []
+      }
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+      }
+    });
+
+  } catch (error: any) {
+    console.error('GET Logs Error:', error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
