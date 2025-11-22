@@ -1,126 +1,256 @@
-import React from 'react';
-import { Activity, Database, CheckCircle, Server, AlertTriangle, Settings, ShieldCheck, Zap, Terminal, Copy } from 'lucide-react';
+"use client";
+
+import React, { useEffect, useState } from 'react';
+import { 
+  Activity, Database, CheckCircle, Server, AlertTriangle, 
+  Settings, ShieldCheck, Zap, Terminal, RefreshCw, AlertOctagon, Check 
+} from 'lucide-react';
+
+interface SuccessLog {
+  event_id: string;
+  event_name: string;
+  lead_id: string;
+  value: number;
+  sent_at: string;
+  fecha_conversion: string;
+}
+
+interface ErrorLog {
+  lead_id: string;
+  nombre?: string;
+  email?: string;
+  estado_lead: string;
+  error_meta: string;
+  updated_at: string;
+}
 
 export default function Dashboard() {
+  const [loading, setLoading] = useState(false);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [successLogs, setSuccessLogs] = useState<SuccessLog[]>([]);
+  const [errorLogs, setErrorLogs] = useState<ErrorLog[]>([]);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  const fetchLogs = async () => {
+    setLoading(true);
+    setFetchError(null);
+    try {
+      const res = await fetch('/api/logs');
+      const data = await res.json();
+      
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch logs');
+      
+      setSuccessLogs(data.data.successLogs);
+      setErrorLogs(data.data.errorLogs);
+      setLastRefreshed(new Date());
+    } catch (err: any) {
+      setFetchError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLogs();
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(fetchLogs, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
-    <div className="min-h-screen bg-gray-50 p-8 font-sans">
-      <div className="max-w-5xl mx-auto space-y-6">
+    <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans">
+      <div className="max-w-6xl mx-auto space-y-8">
         
         {/* Header */}
-        <header className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex justify-between items-center">
+        <header className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col md:flex-row justify-between items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
               <Activity className="w-8 h-8 text-blue-600" />
               Meta CAPI Sync
             </h1>
-            <p className="text-gray-500 mt-1">Real-time Webhook Processor</p>
+            <p className="text-gray-500 mt-1">Real-time Webhook Processor & Monitor</p>
           </div>
-          <div className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-700 rounded-full text-sm font-medium">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-            System Active
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-700 rounded-full text-sm font-medium">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              System Active
+            </div>
           </div>
         </header>
 
-        {/* Architecture Info */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card 
-            icon={<Database className="w-6 h-6 text-emerald-600" />}
-            title="Source"
-            value="Supabase (SQL)"
-            subtitle="Trigger: Custom pg_net Function"
-          />
-           <Card 
-            icon={<Server className="w-6 h-6 text-indigo-600" />}
-            title="Processor"
-            value="Vercel Function"
-            subtitle="API Route: /api/webhook/meta"
-          />
-           <Card 
-            icon={<Activity className="w-6 h-6 text-blue-600" />}
-            title="Destination"
-            value="Meta Conversions API"
-            subtitle="Deduplication: Custom Table"
-          />
-        </div>
-
-        {/* Instructions */}
-        <div className="space-y-6">
-          
-          {/* Migration Status */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">System Status</h2>
-            <div className="grid md:grid-cols-2 gap-4">
-              <div className="flex items-start gap-4 p-4 rounded-lg bg-gray-50 border border-gray-200">
-                <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
-                <div>
-                  <h3 className="font-medium text-gray-900">Smart Change Detection</h3>
-                  <p className="text-sm text-gray-600">
-                    API logic is ready to receive <code>old_record</code> and detect changes in Status or Date.
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-start gap-4 p-4 rounded-lg bg-gray-50 border border-gray-200">
-                <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
-                <div>
-                  <h3 className="font-medium text-gray-900">Deduplication</h3>
-                  <p className="text-sm text-gray-600">
-                    Events are deduplicated using <code>eventos_enviados_meta</code> table.
-                  </p>
-                </div>
-              </div>
-            </div>
+        {/* --- MONITORING CONSOLE --- */}
+        <div className="space-y-4">
+          <div className="flex justify-between items-end">
+             <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <Terminal className="w-6 h-6 text-gray-700" />
+                Live Console
+             </h2>
+             <button 
+                onClick={fetchLogs}
+                disabled={loading}
+                className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+             >
+               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+               {loading ? 'Refreshing...' : 'Refresh Logs'}
+             </button>
           </div>
 
-          {/* Webhook Configuration Guide */}
-          <div className="bg-white rounded-xl shadow-sm border border-blue-100 overflow-hidden">
-            <div className="p-6 border-b border-blue-100 bg-blue-50/50">
-              <div className="flex items-center gap-2 mb-1">
-                <Settings className="w-6 h-6 text-blue-600" />
-                <h2 className="text-lg font-semibold text-gray-900">Database Trigger Configuration</h2>
+          {fetchError && (
+            <div className="bg-red-50 text-red-700 p-4 rounded-lg border border-red-200 flex items-center gap-2">
+              <AlertOctagon className="w-5 h-5" />
+              Error connecting to server: {fetchError}
+            </div>
+          )}
+
+          <div className="grid lg:grid-cols-2 gap-6">
+            
+            {/* Success Table */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-[500px]">
+              <div className="p-4 border-b border-gray-100 bg-green-50/30 flex justify-between items-center">
+                <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  Successful Events (Last 20)
+                </h3>
+                <span className="text-xs text-gray-500">
+                  {successLogs.length} records
+                </span>
               </div>
-              <p className="text-sm text-blue-800">
-                This SQL configuration is <strong>active</strong> and correctly implements the "Broad Listen, Strict Filter" strategy.
-              </p>
+              <div className="overflow-y-auto flex-1 p-0">
+                {successLogs.length === 0 ? (
+                   <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8 text-center">
+                     <Activity className="w-12 h-12 mb-2 opacity-20" />
+                     <p>No events sent yet.</p>
+                     <p className="text-xs mt-2">Trigger a change in your DB to see data here.</p>
+                   </div>
+                ) : (
+                  <table className="w-full text-sm text-left">
+                    <thead className="text-xs text-gray-500 uppercase bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="px-4 py-3">Time (Sent)</th>
+                        <th className="px-4 py-3">Event</th>
+                        <th className="px-4 py-3">Lead ID</th>
+                        <th className="px-4 py-3 text-right">Value</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {successLogs.map((log) => (
+                        <tr key={log.event_id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                            {new Date(log.sent_at).toLocaleTimeString()} <span className="text-xs text-gray-400">{new Date(log.sent_at).toLocaleDateString()}</span>
+                          </td>
+                          <td className="px-4 py-3 font-medium text-gray-900">
+                            <span className="px-2 py-1 bg-green-100 text-green-800 rounded-md text-xs">
+                              {log.event_name}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-gray-500 font-mono text-xs truncate max-w-[100px]" title={log.lead_id}>
+                            {log.lead_id || 'N/A'}
+                          </td>
+                          <td className="px-4 py-3 text-right font-medium text-gray-700">
+                            ${log.value}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
             </div>
 
-            <div className="p-6 space-y-6">
-              
-              {/* Logic Explanation */}
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="p-4 rounded-lg bg-emerald-50 border border-emerald-200">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Zap className="w-4 h-4 text-emerald-600" />
-                    <h3 className="font-semibold text-sm text-emerald-900">Why this SQL is correct:</h3>
-                  </div>
-                  <ul className="list-disc list-inside text-xs text-emerald-800 space-y-1">
-                    <li>Uses <code>IS DISTINCT FROM</code> for safe comparison (handles NULLs).</li>
-                    <li>Sends <code>old_record</code> so Vercel can validate changes accurately.</li>
-                    <li>Filters locally in DB, saving Vercel execution costs.</li>
-                  </ul>
-                </div>
-
-                <div className="p-4 rounded-lg bg-amber-50 border border-amber-200">
-                  <div className="flex items-center gap-2 mb-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-600" />
-                    <h3 className="font-semibold text-sm text-amber-900">Important:</h3>
-                  </div>
-                  <ul className="list-disc list-inside text-xs text-amber-800 space-y-1">
-                    <li>Ensure <code>pg_net</code> extension is enabled in Supabase.</li>
-                    <li><strong>Delete any UI-created webhooks</strong> to avoid double events.</li>
-                  </ul>
-                </div>
+            {/* Error Table */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-[500px]">
+              <div className="p-4 border-b border-gray-100 bg-red-50/30 flex justify-between items-center">
+                <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                  <AlertTriangle className="w-5 h-5 text-red-600" />
+                  Failed Leads / Errors
+                </h3>
+                 <span className="text-xs text-gray-500">
+                  {errorLogs.length} records
+                </span>
               </div>
+              <div className="overflow-y-auto flex-1 p-0">
+                {errorLogs.length === 0 ? (
+                   <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8">
+                     <Check className="w-12 h-12 mb-2 opacity-20" />
+                     <p>No recent errors found.</p>
+                   </div>
+                ) : (
+                  <table className="w-full text-sm text-left">
+                    <thead className="text-xs text-gray-500 uppercase bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="px-4 py-3">Time (Updated)</th>
+                        <th className="px-4 py-3">Status</th>
+                        <th className="px-4 py-3">Error Details</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {errorLogs.map((log) => (
+                        <tr key={log.lead_id} className="hover:bg-gray-50 group">
+                          <td className="px-4 py-3 text-gray-600 whitespace-nowrap align-top">
+                            {new Date(log.updated_at).toLocaleTimeString()}
+                          </td>
+                          <td className="px-4 py-3 align-top">
+                             <div className="font-medium text-gray-900 text-xs">{log.email || log.nombre || 'Unknown'}</div>
+                             <div className="text-xs text-gray-500">{log.estado_lead}</div>
+                             <div className="text-[10px] text-gray-400 font-mono mt-1">{log.lead_id}</div>
+                          </td>
+                          <td className="px-4 py-3 text-red-600 text-xs align-top break-words max-w-[200px]">
+                            {log.error_meta}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
 
-              {/* SQL Code Block */}
-              <div className="rounded-lg overflow-hidden border border-gray-200 bg-gray-900">
-                <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
-                  <span className="text-xs font-mono text-gray-400 flex items-center gap-2">
-                    <Terminal className="w-3 h-3" />
-                    Supabase SQL Editor
-                  </span>
-                  <span className="text-xs text-gray-500">notify_vercel_webhook.sql</span>
+          </div>
+          
+          <div className="text-center text-xs text-gray-400 pt-2">
+            Last updated: {lastRefreshed ? lastRefreshed.toLocaleTimeString() : 'Never'}
+          </div>
+        </div>
+
+        <hr className="border-gray-200" />
+
+        {/* Architecture Info (Collapsed/Secondary) */}
+        <div className="opacity-80 hover:opacity-100 transition-opacity">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Configuration & Status</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <Card 
+                icon={<Database className="w-6 h-6 text-emerald-600" />}
+                title="Source"
+                value="Supabase (SQL)"
+                subtitle="Trigger: Custom pg_net Function"
+            />
+            <Card 
+                icon={<Server className="w-6 h-6 text-indigo-600" />}
+                title="Processor"
+                value="Vercel Function"
+                subtitle="API Route: /api/webhook/meta"
+            />
+            <Card 
+                icon={<Activity className="w-6 h-6 text-blue-600" />}
+                title="Destination"
+                value="Meta Conversions API"
+                subtitle="Deduplication: Custom Table"
+            />
+            </div>
+
+            {/* Webhook Configuration Guide */}
+            <div className="bg-white rounded-xl shadow-sm border border-blue-100 overflow-hidden">
+                <div className="p-6 border-b border-blue-100 bg-blue-50/50">
+                <div className="flex items-center gap-2 mb-1">
+                    <Settings className="w-6 h-6 text-blue-600" />
+                    <h2 className="text-lg font-semibold text-gray-900">Database Trigger Configuration</h2>
                 </div>
-                <div className="p-4 overflow-x-auto">
+                <p className="text-sm text-blue-800">
+                    This SQL configuration is the recommended setup for your environment.
+                </p>
+                </div>
+
+                <div className="p-4 overflow-x-auto bg-gray-900">
                   <pre className="text-xs font-mono text-blue-300 leading-relaxed">
 {`-- 1. Verify extension
 CREATE EXTENSION IF NOT EXISTS pg_net;
@@ -134,60 +264,29 @@ DECLARE
 BEGIN
   -- CASE 1: INSERT (Always Send)
   IF TG_OP = 'INSERT' THEN
-    payload := jsonb_build_object(
-      'type', TG_OP,
-      'table', TG_TABLE_NAME,
-      'record', row_to_json(NEW),
-      'old_record', NULL
-    );
-    
-    PERFORM net.http_post(
-      url := webhook_url,
-      headers := '{"Content-Type": "application/json"}'::jsonb,
-      body := payload::text
-    );
+    payload := jsonb_build_object('type', TG_OP, 'table', TG_TABLE_NAME, 'record', row_to_json(NEW), 'old_record', NULL);
+    PERFORM net.http_post(url := webhook_url, headers := '{"Content-Type": "application/json"}'::jsonb, body := payload::text);
     RETURN NEW;
   END IF;
 
   -- CASE 2: UPDATE (Send only if critical columns change)
   IF TG_OP = 'UPDATE' THEN
-    IF (OLD.estado_lead IS DISTINCT FROM NEW.estado_lead) OR 
-       (OLD.fecha_conversion IS DISTINCT FROM NEW.fecha_conversion) THEN
-      
-      payload := jsonb_build_object(
-        'type', TG_OP,
-        'table', TG_TABLE_NAME,
-        'record', row_to_json(NEW),
-        'old_record', row_to_json(OLD) 
-      );
-      
-      PERFORM net.http_post(
-        url := webhook_url,
-        headers := '{"Content-Type": "application/json"}'::jsonb,
-        body := payload::text
-      );
+    IF (OLD.estado_lead IS DISTINCT FROM NEW.estado_lead) OR (OLD.fecha_conversion IS DISTINCT FROM NEW.fecha_conversion) THEN
+      payload := jsonb_build_object('type', TG_OP, 'table', TG_TABLE_NAME, 'record', row_to_json(NEW), 'old_record', row_to_json(OLD));
+      PERFORM net.http_post(url := webhook_url, headers := '{"Content-Type": "application/json"}'::jsonb, body := payload::text);
     END IF;
     RETURN NEW;
   END IF;
-
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- 3. Create Trigger
 DROP TRIGGER IF EXISTS trigger_notify_vercel ON leads_formularios_optimizada;
-
-CREATE TRIGGER trigger_notify_vercel
-  AFTER INSERT OR UPDATE ON leads_formularios_optimizada
-  FOR EACH ROW
-  EXECUTE FUNCTION notify_vercel_webhook();`}
+CREATE TRIGGER trigger_notify_vercel AFTER INSERT OR UPDATE ON leads_formularios_optimizada FOR EACH ROW EXECUTE FUNCTION notify_vercel_webhook();`}
                   </pre>
                 </div>
-              </div>
-
             </div>
-          </div>
-
         </div>
 
       </div>
