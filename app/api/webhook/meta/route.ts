@@ -18,6 +18,25 @@ const META_PIXEL_ID = process.env.META_PIXEL_ID!;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 
 /**
+ * Helper to log "Soft Errors" or "Warnings" to the database so the user can see them in the Dashboard.
+ * This helps debug why events aren't showing up (e.g., unmapped status).
+ */
+async function logSkipReason(leadId: string, reason: string) {
+  if (!leadId) return;
+  try {
+    // We prefix with INFO or WARN to distinguish from real crashes in the UI
+    await supabase.from('leads_formularios_optimizada')
+      .update({ 
+        error_meta: `LOG: ${reason}`,
+        updated_at: new Date().toISOString() 
+      })
+      .eq('lead_id', leadId);
+  } catch (e) {
+    console.error('Failed to log skip reason', e);
+  }
+}
+
+/**
  * GET Handler: Retrieves logs for the Dashboard
  * Hosted here to avoid '404 Not Found' issues with creating new API routes without server restart.
  */
@@ -65,7 +84,9 @@ export async function POST(req: NextRequest) {
     const url = new URL(req.url);
     const secret = url.searchParams.get('secret');
     
+    // Check if secret matches (if configured in env)
     if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+      console.error(`[Webhook] Unauthorized: Secret mismatch. Received: ${secret?.slice(0,3)}...`);
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -82,12 +103,20 @@ export async function POST(req: NextRequest) {
     const effectiveId = lead?.lead_id || lead?.telefono || lead?.email;
 
     if (!lead || !effectiveId) {
-      return NextResponse.json({ message: 'Ignored: No identifying data (lead_id, phone, or email)' }, { status: 200 }); // 200 to stop retries
+      return NextResponse.json({ message: 'Ignored: No identifying data (lead_id, phone, or email)' }, { status: 200 }); 
     }
 
-    // 3. SMART CHANGE DETECTION
+    // 3. SMART CHANGE DETECTION & LOOP PREVENTION
     if (type === 'UPDATE' && old_record) {
       
+      // If the only thing that changed was 'error_meta' (our logging column), IGNORE IT.
+      // This prevents infinite loops when we write logs.
+      if (lead.error_meta !== old_record.error_meta && 
+          lead.estado_lead === old_record.estado_lead &&
+          lead.fecha_conversion === old_record.fecha_conversion) {
+         return NextResponse.json({ message: 'Ignored: Loop prevention (Log update)', skipped: true }, { status: 200 });
+      }
+
       const statusChanged = lead.estado_lead !== old_record.estado_lead;
       
       // Compare dates carefully
@@ -106,18 +135,22 @@ export async function POST(req: NextRequest) {
     // 4. Logic: Should we send this event?
     const eventInfo = EVENT_MAPPING[lead.estado_lead];
     if (!eventInfo) {
+      // LOGGING: Inform user why this was skipped
+      if (lead.lead_id) await logSkipReason(lead.lead_id, `Status '${lead.estado_lead}' not mapped in constants.ts`);
       return NextResponse.json({ message: `Status '${lead.estado_lead}' not mapped to an event` });
     }
 
     // Check Filters (Score & Age)
     const score = lead.score_lead || 0;
     if (score < CONFIG.MIN_LEAD_SCORE) {
+      if (lead.lead_id) await logSkipReason(lead.lead_id, `Skipped: Low Score (${score})`);
       return NextResponse.json({ message: 'Skipped: Low Score' });
     }
 
     const conversionDate = lead.fecha_conversion || lead.updated_at || lead.created_at;
     
     if (utils.isTooOld(conversionDate, CONFIG.MAX_EVENT_AGE_DAYS)) {
+      if (lead.lead_id) await logSkipReason(lead.lead_id, `Skipped: Event too old (> ${CONFIG.MAX_EVENT_AGE_DAYS} days)`);
       return NextResponse.json({ message: 'Skipped: Event too old' });
     }
 
@@ -133,6 +166,7 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (existingEvent) {
+      if (lead.lead_id) await logSkipReason(lead.lead_id, `Skipped: Event already sent (Deduplicated)`);
       return NextResponse.json({ message: 'Skipped: Event already sent (Deduplicated in DB)' });
     }
 

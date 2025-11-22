@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { 
   Activity, Database, CheckCircle, Server, AlertTriangle, 
-  Settings, ShieldCheck, Zap, Terminal, RefreshCw, AlertOctagon, Check 
+  Settings, ShieldCheck, Zap, Terminal, RefreshCw, AlertOctagon, Check, Info 
 } from 'lucide-react';
 
 interface SuccessLog {
@@ -74,6 +74,12 @@ export default function Dashboard() {
     const interval = setInterval(fetchLogs, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  // Helper to determine if log is a Warning (Yellow) or Error (Red)
+  const getLogType = (msg: string) => {
+    if (msg?.startsWith('LOG:') || msg?.includes('Skipped')) return 'warning';
+    return 'error';
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans">
@@ -178,12 +184,12 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Error Table */}
+            {/* Error/Warning Table */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-[500px]">
-              <div className="p-4 border-b border-gray-100 bg-red-50/30 flex justify-between items-center">
+              <div className="p-4 border-b border-gray-100 bg-amber-50/30 flex justify-between items-center">
                 <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-                  <AlertTriangle className="w-5 h-5 text-red-600" />
-                  Failed Leads / Errors
+                  <Info className="w-5 h-5 text-amber-600" />
+                  Activity Logs & Errors
                 </h3>
                  <span className="text-xs text-gray-500">
                   {errorLogs.length} records
@@ -193,33 +199,37 @@ export default function Dashboard() {
                 {errorLogs.length === 0 ? (
                    <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8">
                      <Check className="w-12 h-12 mb-2 opacity-20" />
-                     <p>No recent errors found.</p>
+                     <p>No logs found.</p>
+                     <p className="text-xs mt-2 text-center">Ignored events (e.g. unmapped status) <br/> will appear here.</p>
                    </div>
                 ) : (
                   <table className="w-full text-sm text-left">
                     <thead className="text-xs text-gray-500 uppercase bg-gray-50 sticky top-0">
                       <tr>
-                        <th className="px-4 py-3">Time (Updated)</th>
+                        <th className="px-4 py-3">Time</th>
                         <th className="px-4 py-3">Status</th>
-                        <th className="px-4 py-3">Error Details</th>
+                        <th className="px-4 py-3">Message</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {errorLogs.map((log) => (
-                        <tr key={log.lead_id} className="hover:bg-gray-50 group">
-                          <td className="px-4 py-3 text-gray-600 whitespace-nowrap align-top">
-                            {new Date(log.updated_at).toLocaleTimeString()}
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                             <div className="font-medium text-gray-900 text-xs">{log.email || log.nombre || 'Unknown'}</div>
-                             <div className="text-xs text-gray-500">{log.estado_lead}</div>
-                             <div className="text-[10px] text-gray-400 font-mono mt-1">{log.lead_id}</div>
-                          </td>
-                          <td className="px-4 py-3 text-red-600 text-xs align-top break-words max-w-[200px]">
-                            {log.error_meta}
-                          </td>
-                        </tr>
-                      ))}
+                      {errorLogs.map((log) => {
+                        const type = getLogType(log.error_meta);
+                        return (
+                          <tr key={log.lead_id} className="hover:bg-gray-50 group">
+                            <td className="px-4 py-3 text-gray-600 whitespace-nowrap align-top">
+                              {new Date(log.updated_at).toLocaleTimeString()}
+                            </td>
+                            <td className="px-4 py-3 align-top">
+                              <div className="font-medium text-gray-900 text-xs">{log.email || log.nombre || 'Unknown'}</div>
+                              <div className="text-xs text-gray-500">{log.estado_lead}</div>
+                              <div className="text-[10px] text-gray-400 font-mono mt-1">{log.lead_id}</div>
+                            </td>
+                            <td className={`px-4 py-3 text-xs align-top break-words max-w-[200px] ${type === 'warning' ? 'text-amber-700' : 'text-red-600'}`}>
+                              {log.error_meta.replace('LOG:', '')}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}
