@@ -2,8 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { 
-  Activity, Database, CheckCircle, Server, AlertTriangle, 
-  Settings, ShieldCheck, Zap, Terminal, RefreshCw, AlertOctagon, Check, Info, PlayCircle 
+  Activity, CheckCircle, Terminal, RefreshCw, AlertOctagon, Check, Info, PlayCircle, Copy, Database, Key, Globe
 } from 'lucide-react';
 
 interface SuccessLog {
@@ -32,11 +31,16 @@ export default function Dashboard() {
   const [errorLogs, setErrorLogs] = useState<ErrorLog[]>([]);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
+  // SQL Generator State
+  const [tableName, setTableName] = useState('leads_formularios_optimizada');
+  const [projectUrl, setProjectUrl] = useState('https://tu-proyecto.vercel.app');
+  const [secret, setSecret] = useState('mi_secreto_seguro');
+  const [generatedSql, setGeneratedSql] = useState('');
+
   const fetchLogs = async () => {
     setLoading(true);
     setFetchError(null);
     try {
-      // Use the existing webhook route with GET method
       const res = await fetch(`/api/webhook/meta?_t=${Date.now()}`);
       
       if (res.status === 404) {
@@ -66,8 +70,8 @@ export default function Dashboard() {
   };
 
   const simulateTestEvent = async () => {
-    const secret = prompt("Enter your WEBHOOK_SECRET to verify authorization:");
-    if (!secret) return;
+    const inputSecret = prompt("Enter your WEBHOOK_SECRET to verify authorization:", secret);
+    if (!inputSecret) return;
 
     setSimulating(true);
     try {
@@ -75,16 +79,19 @@ export default function Dashboard() {
         type: "INSERT",
         record: {
           lead_id: `test-lead-${Math.floor(Math.random() * 1000)}`,
-          estado_lead: "Nuevo Lead", // Should map to 'Lead'
+          estado_lead: "Nuevo Lead",
           email: "test_simulation@example.com",
           telefono: "+525512345678",
           nombre: "Simulated User",
           fecha_conversion: new Date().toISOString(),
-          score_lead: 10
+          score_lead: 10,
+          // Adding fake DB fields to match what Supabase sends
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         }
       };
 
-      const res = await fetch(`/api/webhook/meta?secret=${secret}`, {
+      const res = await fetch(`/api/webhook/meta?secret=${inputSecret}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(testPayload)
@@ -94,7 +101,7 @@ export default function Dashboard() {
       
       if (res.ok) {
         alert(`✅ Simulation Successful!\nMeta Response: ${JSON.stringify(result, null, 2)}`);
-        fetchLogs(); // Refresh logs to see the new event
+        fetchLogs();
       } else {
         alert(`❌ Simulation Failed:\n${result.error || result.message || 'Unknown error'}`);
       }
@@ -106,7 +113,78 @@ export default function Dashboard() {
     }
   };
 
+  // Update SQL when inputs change
   useEffect(() => {
+    const cleanUrl = projectUrl.replace(/\/$/, ''); // remove trailing slash
+    const sql = `-- 1. Habilita la extensión para hacer peticiones HTTP
+CREATE EXTENSION IF NOT EXISTS pg_net;
+
+-- 2. Crea la función que enviará los datos a Vercel
+CREATE OR REPLACE FUNCTION notify_meta_capi()
+RETURNS TRIGGER AS $$
+DECLARE
+  -- TU URL CONFIGURADA:
+  webhook_url TEXT := '${cleanUrl}/api/webhook/meta?secret=${secret}';
+  payload JSONB;
+BEGIN
+  -- CASO 1: INSERT (Siempre enviar nuevos leads)
+  IF TG_OP = 'INSERT' THEN
+    payload := jsonb_build_object(
+      'type', TG_OP, 
+      'table', TG_TABLE_NAME, 
+      'record', row_to_json(NEW), 
+      'old_record', NULL
+    );
+    
+    PERFORM net.http_post(
+      url := webhook_url, 
+      headers := '{"Content-Type": "application/json"}'::jsonb, 
+      body := payload::text
+    );
+    
+    RETURN NEW;
+  END IF;
+
+  -- CASO 2: UPDATE (Solo enviar si cambia el estado o la fecha)
+  IF TG_OP = 'UPDATE' THEN
+    IF (OLD.estado_lead IS DISTINCT FROM NEW.estado_lead) OR 
+       (OLD.fecha_conversion IS DISTINCT FROM NEW.fecha_conversion) THEN
+       
+      payload := jsonb_build_object(
+        'type', TG_OP, 
+        'table', TG_TABLE_NAME, 
+        'record', row_to_json(NEW), 
+        'old_record', row_to_json(OLD)
+      );
+      
+      PERFORM net.http_post(
+        url := webhook_url, 
+        headers := '{"Content-Type": "application/json"}'::jsonb, 
+        body := payload::text
+      );
+    END IF;
+    RETURN NEW;
+  END IF;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 3. Asigna la función a tu tabla: ${tableName}
+DROP TRIGGER IF EXISTS trigger_meta_capi ON ${tableName};
+
+CREATE TRIGGER trigger_meta_capi
+AFTER INSERT OR UPDATE ON ${tableName}
+FOR EACH ROW
+EXECUTE FUNCTION notify_meta_capi();`;
+    setGeneratedSql(sql);
+  }, [tableName, projectUrl, secret]);
+
+  useEffect(() => {
+    // Try to guess current URL for convenience
+    if (typeof window !== 'undefined') {
+      setProjectUrl(window.location.origin);
+    }
     fetchLogs();
     const interval = setInterval(fetchLogs, 30000);
     return () => clearInterval(interval);
@@ -179,38 +257,35 @@ export default function Dashboard() {
           <div className="grid lg:grid-cols-2 gap-6">
             
             {/* Success Table */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-[500px]">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-[400px]">
               <div className="p-4 border-b border-gray-100 bg-green-50/30 flex justify-between items-center">
                 <h3 className="font-semibold text-gray-800 flex items-center gap-2">
                   <CheckCircle className="w-5 h-5 text-green-600" />
-                  Successful Events (Last 20)
+                  Successful Events
                 </h3>
-                <span className="text-xs text-gray-500">
-                  {successLogs.length} records
-                </span>
+                <span className="text-xs text-gray-500">{successLogs.length} records</span>
               </div>
               <div className="overflow-y-auto flex-1 p-0">
                 {successLogs.length === 0 ? (
                    <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8 text-center">
                      <Activity className="w-12 h-12 mb-2 opacity-20" />
                      <p>No events sent yet.</p>
-                     <p className="text-xs mt-2">Trigger a change in your DB to see data here.</p>
+                     <p className="text-xs mt-2">Use "Simulate Test Event" to verify connection.</p>
                    </div>
                 ) : (
                   <table className="w-full text-sm text-left">
                     <thead className="text-xs text-gray-500 uppercase bg-gray-50 sticky top-0">
                       <tr>
-                        <th className="px-4 py-3">Time (Sent)</th>
+                        <th className="px-4 py-3">Time</th>
                         <th className="px-4 py-3">Event</th>
                         <th className="px-4 py-3">Lead ID</th>
-                        <th className="px-4 py-3 text-right">Value</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {successLogs.map((log) => (
                         <tr key={log.event_id} className="hover:bg-gray-50">
                           <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
-                            {new Date(log.sent_at).toLocaleTimeString()} <span className="text-xs text-gray-400">{new Date(log.sent_at).toLocaleDateString()}</span>
+                            {new Date(log.sent_at).toLocaleTimeString()}
                           </td>
                           <td className="px-4 py-3 font-medium text-gray-900">
                             <span className="px-2 py-1 bg-green-100 text-green-800 rounded-md text-xs">
@@ -219,9 +294,6 @@ export default function Dashboard() {
                           </td>
                           <td className="px-4 py-3 text-gray-500 font-mono text-xs truncate max-w-[100px]" title={log.lead_id}>
                             {log.lead_id || 'N/A'}
-                          </td>
-                          <td className="px-4 py-3 text-right font-medium text-gray-700">
-                            ${log.value}
                           </td>
                         </tr>
                       ))}
@@ -232,22 +304,20 @@ export default function Dashboard() {
             </div>
 
             {/* Error/Warning Table */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-[500px]">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-[400px]">
               <div className="p-4 border-b border-gray-100 bg-amber-50/30 flex justify-between items-center">
                 <h3 className="font-semibold text-gray-800 flex items-center gap-2">
                   <Info className="w-5 h-5 text-amber-600" />
-                  Activity Logs & Errors
+                  Logs & Debug
                 </h3>
-                 <span className="text-xs text-gray-500">
-                  {errorLogs.length} records
-                </span>
+                 <span className="text-xs text-gray-500">{errorLogs.length} records</span>
               </div>
               <div className="overflow-y-auto flex-1 p-0">
                 {errorLogs.length === 0 ? (
                    <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8">
                      <Check className="w-12 h-12 mb-2 opacity-20" />
                      <p>No logs found.</p>
-                     <p className="text-xs mt-2 text-center">Ignored events (e.g. unmapped status) <br/> will appear here.</p>
+                     <p className="text-xs mt-2 text-center">Skipped/Ignored events will appear here.</p>
                    </div>
                 ) : (
                   <table className="w-full text-sm text-left">
@@ -255,7 +325,7 @@ export default function Dashboard() {
                       <tr>
                         <th className="px-4 py-3">Time</th>
                         <th className="px-4 py-3">Status</th>
-                        <th className="px-4 py-3">Message</th>
+                        <th className="px-4 py-3">Details</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -267,9 +337,7 @@ export default function Dashboard() {
                               {new Date(log.updated_at).toLocaleTimeString()}
                             </td>
                             <td className="px-4 py-3 align-top">
-                              <div className="font-medium text-gray-900 text-xs">{log.email || log.nombre || 'Unknown'}</div>
                               <div className="text-xs text-gray-500">{log.estado_lead}</div>
-                              <div className="text-[10px] text-gray-400 font-mono mt-1 truncate max-w-[100px]">{log.lead_id}</div>
                             </td>
                             <td className={`px-4 py-3 text-xs align-top break-words max-w-[200px] ${type === 'warning' ? 'text-amber-700' : 'text-red-600'}`}>
                               {log.error_meta ? log.error_meta.replace('LOG:', '') : 'Unknown Error'}
@@ -282,110 +350,92 @@ export default function Dashboard() {
                 )}
               </div>
             </div>
-
-          </div>
-          
-          <div className="text-center text-xs text-gray-400 pt-2">
-            Last updated: {lastRefreshed ? lastRefreshed.toLocaleTimeString() : 'Never'}
           </div>
         </div>
 
-        <hr className="border-gray-200" />
+        {/* --- SQL GENERATOR TOOL --- */}
+        <div className="bg-white rounded-xl shadow-lg border border-blue-100 overflow-hidden">
+          <div className="p-6 bg-gradient-to-r from-blue-600 to-indigo-700 text-white">
+            <h2 className="text-xl font-bold flex items-center gap-2">
+              <Database className="w-6 h-6" />
+              Fix Supabase Connection
+            </h2>
+            <p className="text-blue-100 mt-1 text-sm">
+              Since the Test works but real events don't, your Supabase Trigger is likely misconfigured.
+              Use this tool to generate the correct SQL.
+            </p>
+          </div>
 
-        {/* Architecture Info (Collapsed/Secondary) */}
-        <div className="opacity-80 hover:opacity-100 transition-opacity">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Configuration & Status</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <Card 
-                icon={<Database className="w-6 h-6 text-emerald-600" />}
-                title="Source"
-                value="Supabase (SQL)"
-                subtitle="Trigger: Custom pg_net Function"
-            />
-            <Card 
-                icon={<Server className="w-6 h-6 text-indigo-600" />}
-                title="Processor"
-                value="Vercel Function"
-                subtitle="API Route: /api/webhook/meta"
-            />
-            <Card 
-                icon={<Activity className="w-6 h-6 text-blue-600" />}
-                title="Destination"
-                value="Meta Conversions API"
-                subtitle="Deduplication: Custom Table"
-            />
+          <div className="p-6 space-y-6">
+            <div className="grid md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                  <Database className="w-3 h-3" /> Database Table Name
+                </label>
+                <input 
+                  type="text" 
+                  value={tableName}
+                  onChange={(e) => setTableName(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-md font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="leads_formularios_optimizada"
+                />
+                <p className="text-xs text-gray-500 mt-1">Make sure this matches your Supabase table EXACTLY.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                  <Globe className="w-3 h-3" /> Project URL
+                </label>
+                <input 
+                  type="text" 
+                  value={projectUrl}
+                  onChange={(e) => setProjectUrl(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-md font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                  <Key className="w-3 h-3" /> Webhook Secret
+                </label>
+                <input 
+                  type="text" 
+                  value={secret}
+                  onChange={(e) => setSecret(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-md font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
             </div>
 
-            {/* Webhook Configuration Guide */}
-            <div className="bg-white rounded-xl shadow-sm border border-blue-100 overflow-hidden">
-                <div className="p-6 border-b border-blue-100 bg-blue-50/50">
-                <div className="flex items-center gap-2 mb-1">
-                    <Settings className="w-6 h-6 text-blue-600" />
-                    <h2 className="text-lg font-semibold text-gray-900">Database Trigger Configuration</h2>
-                </div>
-                <p className="text-sm text-blue-800">
-                    This SQL configuration is the recommended setup for your environment.
-                </p>
-                </div>
-
-                <div className="p-4 overflow-x-auto bg-gray-900">
-                  <pre className="text-xs font-mono text-blue-300 leading-relaxed">
-{`-- 1. Verify extension
-CREATE EXTENSION IF NOT EXISTS pg_net;
-
--- 2. Create Function
-CREATE OR REPLACE FUNCTION notify_vercel_webhook()
-RETURNS TRIGGER AS $$
-DECLARE
-  webhook_url TEXT := 'https://[YOUR_DOMAIN]/api/webhook/meta?secret=[YOUR_SECRET]';
-  payload JSONB;
-BEGIN
-  -- CASE 1: INSERT (Always Send)
-  IF TG_OP = 'INSERT' THEN
-    payload := jsonb_build_object('type', TG_OP, 'table', TG_TABLE_NAME, 'record', row_to_json(NEW), 'old_record', NULL);
-    PERFORM net.http_post(url := webhook_url, headers := '{"Content-Type": "application/json"}'::jsonb, body := payload::text);
-    RETURN NEW;
-  END IF;
-
-  -- CASE 2: UPDATE (Send only if critical columns change)
-  IF TG_OP = 'UPDATE' THEN
-    IF (OLD.estado_lead IS DISTINCT FROM NEW.estado_lead) OR (OLD.fecha_conversion IS DISTINCT FROM NEW.fecha_conversion) THEN
-      payload := jsonb_build_object('type', TG_OP, 'table', TG_TABLE_NAME, 'record', row_to_json(NEW), 'old_record', row_to_json(OLD));
-      PERFORM net.http_post(url := webhook_url, headers := '{"Content-Type": "application/json"}'::jsonb, body := payload::text);
-    END IF;
-    RETURN NEW;
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- 3. Create Trigger
-DROP TRIGGER IF EXISTS trigger_notify_vercel ON leads_formularios_optimizada;
-CREATE TRIGGER trigger_notify_vercel AFTER INSERT OR UPDATE ON leads_formularios_optimizada FOR EACH ROW EXECUTE FUNCTION notify_vercel_webhook();`}
-                  </pre>
-                </div>
+            <div className="relative group">
+              <div className="absolute top-2 right-2">
+                <button 
+                  onClick={() => {
+                    navigator.clipboard.writeText(generatedSql);
+                    alert("Copied SQL to clipboard!");
+                  }}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded shadow transition-colors"
+                >
+                  <Copy className="w-3 h-3" /> Copy SQL
+                </button>
+              </div>
+              <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg text-xs font-mono overflow-x-auto border border-gray-800 leading-relaxed h-64">
+                {generatedSql}
+              </pre>
             </div>
+
+            <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg">
+              <h4 className="text-sm font-bold text-amber-800 mb-1">Instructions:</h4>
+              <ol className="list-decimal list-inside text-sm text-amber-700 space-y-1">
+                <li>Verify the <strong>Table Name</strong> above matches your Supabase database exactly (Case sensitive!).</li>
+                <li>Click <strong>Copy SQL</strong>.</li>
+                <li>Go to your Supabase Project &gt; <strong>SQL Editor</strong>.</li>
+                <li>Paste and click <strong>Run</strong>.</li>
+                <li>Modify a lead in that table and check this dashboard.</li>
+              </ol>
+            </div>
+          </div>
         </div>
 
       </div>
     </div>
   );
 }
-
-interface CardProps {
-  icon: React.ReactNode;
-  title: string;
-  value: string;
-  subtitle: string;
-}
-
-const Card: React.FC<CardProps> = ({ icon, title, value, subtitle }) => (
-  <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-    <div className="flex items-center gap-3 mb-2">
-      <div className="p-2 bg-gray-50 rounded-lg">{icon}</div>
-      <span className="text-sm font-medium text-gray-500">{title}</span>
-    </div>
-    <div className="text-2xl font-bold text-gray-900">{value}</div>
-    <div className="text-xs text-gray-400 mt-1">{subtitle}</div>
-  </div>
-);

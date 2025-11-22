@@ -131,7 +131,12 @@ export async function POST(req: NextRequest) {
     
     // Extract records and type
     // Supabase sends: { type: 'INSERT' | 'UPDATE', record: { ... }, old_record: { ... } }
-    const { type, record: lead, old_record } = body;
+    const { type, record: lead, old_record, table } = body;
+
+    // Diagnostic Log: Check if table matches expectation
+    if (table && table !== 'leads_formularios_optimizada') {
+      console.warn(`[Webhook Warning] Received event from unexpected table: ${table}`);
+    }
 
     // --- ID FALLBACK STRATEGY ---
     const effectiveId = lead?.lead_id || lead?.telefono || lead?.email;
