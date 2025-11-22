@@ -35,11 +35,12 @@ export default function Dashboard() {
     setLoading(true);
     setFetchError(null);
     try {
-      const res = await fetch('/api/logs');
+      // Add timestamp to prevent browser caching of 404/500 responses
+      const res = await fetch(`/api/logs?_t=${Date.now()}`);
       
       // Handle 404 specifically
       if (res.status === 404) {
-        throw new Error("API Endpoint not found (404). If you just added this feature, please restart your dev server or rebuild the project.");
+        throw new Error("API Endpoint not found (404). The server hasn't picked up the new file yet.");
       }
 
       // Check if the response is actually JSON
@@ -47,7 +48,7 @@ export default function Dashboard() {
       if (!contentType || !contentType.includes("application/json")) {
         const text = await res.text();
         console.error("Server returned non-JSON response:", text.substring(0, 100));
-        throw new Error(`Server returned unexpected format (${res.status}). Check Vercel logs.`);
+        throw new Error(`Server Error (${res.status}). Check terminal logs for details.`);
       }
 
       const data = await res.json();
@@ -113,14 +114,15 @@ export default function Dashboard() {
           </div>
 
           {fetchError && (
-            <div className="bg-red-50 text-red-700 p-4 rounded-lg border border-red-200 flex items-start gap-3">
+            <div className="bg-red-50 text-red-700 p-4 rounded-lg border border-red-200 flex items-start gap-3 animate-pulse">
               <AlertOctagon className="w-5 h-5 mt-0.5 flex-shrink-0" />
               <div>
-                <p className="font-bold">Connection Error</p>
+                <p className="font-bold">Connection Status: Disconnected</p>
                 <p className="text-sm mb-2">{fetchError}</p>
                 {fetchError.includes("404") && (
-                   <p className="text-xs bg-red-100 p-2 rounded border border-red-200">
-                     <strong>Tip:</strong> The new API route <code>/api/logs</code> was created, but the running server might not see it yet. Try stopping and restarting your server (`npm run dev` or `next dev`).
+                   <p className="text-xs bg-red-100 p-2 rounded border border-red-200 text-red-900">
+                     <strong>Required Action:</strong> The API route <code>/api/logs</code> is not being served. 
+                     <br/>Please stop the server (Ctrl+C) and run <code>npm run dev</code> again to register the new file.
                    </p>
                 )}
               </div>
@@ -284,7 +286,7 @@ CREATE EXTENSION IF NOT EXISTS pg_net;
 CREATE OR REPLACE FUNCTION notify_vercel_webhook()
 RETURNS TRIGGER AS $$
 DECLARE
-  webhook_url TEXT := 'https://leads-meta-landing-jw6g.vercel.app/api/webhook/meta?secret=2828554491';
+  webhook_url TEXT := 'https://[YOUR_DOMAIN]/api/webhook/meta?secret=[YOUR_SECRET]';
   payload JSONB;
 BEGIN
   -- CASE 1: INSERT (Always Send)
