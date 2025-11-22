@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { 
   Activity, Database, CheckCircle, Server, AlertTriangle, 
-  Settings, ShieldCheck, Zap, Terminal, RefreshCw, AlertOctagon, Check, Info 
+  Settings, ShieldCheck, Zap, Terminal, RefreshCw, AlertOctagon, Check, Info, PlayCircle 
 } from 'lucide-react';
 
 interface SuccessLog {
@@ -26,6 +26,7 @@ interface ErrorLog {
 
 export default function Dashboard() {
   const [loading, setLoading] = useState(false);
+  const [simulating, setSimulating] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [successLogs, setSuccessLogs] = useState<SuccessLog[]>([]);
   const [errorLogs, setErrorLogs] = useState<ErrorLog[]>([]);
@@ -35,19 +36,15 @@ export default function Dashboard() {
     setLoading(true);
     setFetchError(null);
     try {
-      // Use the existing webhook route with GET method to avoid "404 Not Found" on new files
+      // Use the existing webhook route with GET method
       const res = await fetch(`/api/webhook/meta?_t=${Date.now()}`);
       
-      // Handle 404 specifically
       if (res.status === 404) {
         throw new Error("API Endpoint not found. Ensure '/api/webhook/meta' exists.");
       }
 
-      // Check if the response is actually JSON
       const contentType = res.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
-        const text = await res.text();
-        console.error("Server returned non-JSON response:", text.substring(0, 100));
         throw new Error(`Server Error (${res.status}). Check terminal logs.`);
       }
 
@@ -68,16 +65,56 @@ export default function Dashboard() {
     }
   };
 
+  const simulateTestEvent = async () => {
+    const secret = prompt("Enter your WEBHOOK_SECRET to verify authorization:");
+    if (!secret) return;
+
+    setSimulating(true);
+    try {
+      const testPayload = {
+        type: "INSERT",
+        record: {
+          lead_id: `test-lead-${Math.floor(Math.random() * 1000)}`,
+          estado_lead: "Nuevo Lead", // Should map to 'Lead'
+          email: "test_simulation@example.com",
+          telefono: "+525512345678",
+          nombre: "Simulated User",
+          fecha_conversion: new Date().toISOString(),
+          score_lead: 10
+        }
+      };
+
+      const res = await fetch(`/api/webhook/meta?secret=${secret}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(testPayload)
+      });
+
+      const result = await res.json();
+      
+      if (res.ok) {
+        alert(`✅ Simulation Successful!\nMeta Response: ${JSON.stringify(result, null, 2)}`);
+        fetchLogs(); // Refresh logs to see the new event
+      } else {
+        alert(`❌ Simulation Failed:\n${result.error || result.message || 'Unknown error'}`);
+      }
+
+    } catch (err: any) {
+      alert(`❌ Network Error: ${err.message}`);
+    } finally {
+      setSimulating(false);
+    }
+  };
+
   useEffect(() => {
     fetchLogs();
-    // Auto-refresh every 30 seconds
     const interval = setInterval(fetchLogs, 30000);
     return () => clearInterval(interval);
   }, []);
 
-  // Helper to determine if log is a Warning (Yellow) or Error (Red)
   const getLogType = (msg: string) => {
-    if (msg?.startsWith('LOG:') || msg?.includes('Skipped')) return 'warning';
+    if (!msg) return 'error';
+    if (msg.startsWith('LOG:') || msg.includes('Skipped')) return 'warning';
     return 'error';
   };
 
@@ -109,14 +146,24 @@ export default function Dashboard() {
                 <Terminal className="w-6 h-6 text-gray-700" />
                 Live Console
              </h2>
-             <button 
-                onClick={fetchLogs}
-                disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
-             >
-               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-               {loading ? 'Refreshing...' : 'Refresh Logs'}
-             </button>
+             <div className="flex gap-2">
+               <button 
+                  onClick={simulateTestEvent}
+                  disabled={simulating}
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-sm font-medium text-indigo-700 hover:bg-indigo-100 transition-colors disabled:opacity-50"
+               >
+                 <PlayCircle className={`w-4 h-4 ${simulating ? 'animate-spin' : ''}`} />
+                 {simulating ? 'Sending...' : '⚡ Simulate Test Event'}
+               </button>
+               <button 
+                  onClick={fetchLogs}
+                  disabled={loading}
+                  className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+               >
+                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                 {loading ? 'Refreshing...' : 'Refresh Logs'}
+               </button>
+             </div>
           </div>
 
           {fetchError && (
@@ -215,17 +262,17 @@ export default function Dashboard() {
                       {errorLogs.map((log) => {
                         const type = getLogType(log.error_meta);
                         return (
-                          <tr key={log.lead_id} className="hover:bg-gray-50 group">
+                          <tr key={log.lead_id || Math.random()} className="hover:bg-gray-50 group">
                             <td className="px-4 py-3 text-gray-600 whitespace-nowrap align-top">
                               {new Date(log.updated_at).toLocaleTimeString()}
                             </td>
                             <td className="px-4 py-3 align-top">
                               <div className="font-medium text-gray-900 text-xs">{log.email || log.nombre || 'Unknown'}</div>
                               <div className="text-xs text-gray-500">{log.estado_lead}</div>
-                              <div className="text-[10px] text-gray-400 font-mono mt-1">{log.lead_id}</div>
+                              <div className="text-[10px] text-gray-400 font-mono mt-1 truncate max-w-[100px]">{log.lead_id}</div>
                             </td>
                             <td className={`px-4 py-3 text-xs align-top break-words max-w-[200px] ${type === 'warning' ? 'text-amber-700' : 'text-red-600'}`}>
-                              {log.error_meta.replace('LOG:', '')}
+                              {log.error_meta ? log.error_meta.replace('LOG:', '') : 'Unknown Error'}
                             </td>
                           </tr>
                         );

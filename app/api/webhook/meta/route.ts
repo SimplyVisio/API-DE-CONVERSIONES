@@ -18,19 +18,56 @@ const META_PIXEL_ID = process.env.META_PIXEL_ID!;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 
 /**
- * Helper to log "Soft Errors" or "Warnings" to the database so the user can see them in the Dashboard.
- * This helps debug why events aren't showing up (e.g., unmapped status).
+ * Helper: Case-Insensitive Event Mapping Lookup
+ * Returns the event config for "Nuevo Lead" even if input is "nuevo lead" or "NUEVO LEAD"
  */
-async function logSkipReason(leadId: string, reason: string) {
-  if (!leadId) return;
+function getEventConfig(status: string) {
+  if (!status) return null;
+  
+  // 1. Direct match
+  if (EVENT_MAPPING[status]) return EVENT_MAPPING[status];
+
+  // 2. Case-insensitive match
+  const lowerStatus = status.trim().toLowerCase();
+  const foundKey = Object.keys(EVENT_MAPPING).find(k => k.toLowerCase() === lowerStatus);
+  
+  return foundKey ? EVENT_MAPPING[foundKey] : null;
+}
+
+/**
+ * Helper to log "Soft Errors" or "Warnings" to the database.
+ * Improved Fallback: If lead_id is missing, tries to update by Email or Phone.
+ */
+async function logSkipReason(lead: any, reason: string) {
+  const message = `LOG: ${reason}`;
+  const now = new Date().toISOString();
+  
   try {
-    // We prefix with INFO or WARN to distinguish from real crashes in the UI
-    await supabase.from('leads_formularios_optimizada')
-      .update({ 
-        error_meta: `LOG: ${reason}`,
-        updated_at: new Date().toISOString() 
-      })
-      .eq('lead_id', leadId);
+    // Strategy 1: Update by Lead ID (Best)
+    if (lead.lead_id) {
+      await supabase.from('leads_formularios_optimizada')
+        .update({ error_meta: message, updated_at: now })
+        .eq('lead_id', lead.lead_id);
+      return;
+    }
+
+    // Strategy 2: Update by Email
+    if (lead.email) {
+      await supabase.from('leads_formularios_optimizada')
+        .update({ error_meta: message, updated_at: now })
+        .eq('email', lead.email);
+      return;
+    }
+
+    // Strategy 3: Update by Phone
+    if (lead.telefono) {
+      await supabase.from('leads_formularios_optimizada')
+        .update({ error_meta: message, updated_at: now })
+        .eq('telefono', lead.telefono);
+      return;
+    }
+
+    console.warn('[SkipLog] Could not log error to DB (No ID/Email/Phone):', reason);
   } catch (e) {
     console.error('Failed to log skip reason', e);
   }
@@ -38,7 +75,6 @@ async function logSkipReason(leadId: string, reason: string) {
 
 /**
  * GET Handler: Retrieves logs for the Dashboard
- * Hosted here to avoid '404 Not Found' issues with creating new API routes without server restart.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -87,7 +123,7 @@ export async function POST(req: NextRequest) {
     // Check if secret matches (if configured in env)
     if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
       console.error(`[Webhook] Unauthorized: Secret mismatch. Received: ${secret?.slice(0,3)}...`);
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: 'Unauthorized: Secret mismatch' }, { status: 401 });
     }
 
     // 2. Parse Webhook Payload from Supabase
@@ -98,8 +134,6 @@ export async function POST(req: NextRequest) {
     const { type, record: lead, old_record } = body;
 
     // --- ID FALLBACK STRATEGY ---
-    // Social leads (WhatsApp/Messenger) might not have a formal 'lead_id' yet.
-    // We prioritize: lead_id -> telefono -> email
     const effectiveId = lead?.lead_id || lead?.telefono || lead?.email;
 
     if (!lead || !effectiveId) {
@@ -110,7 +144,6 @@ export async function POST(req: NextRequest) {
     if (type === 'UPDATE' && old_record) {
       
       // If the only thing that changed was 'error_meta' (our logging column), IGNORE IT.
-      // This prevents infinite loops when we write logs.
       if (lead.error_meta !== old_record.error_meta && 
           lead.estado_lead === old_record.estado_lead &&
           lead.fecha_conversion === old_record.fecha_conversion) {
@@ -133,29 +166,30 @@ export async function POST(req: NextRequest) {
     }
 
     // 4. Logic: Should we send this event?
-    const eventInfo = EVENT_MAPPING[lead.estado_lead];
+    // Use Helper for Case Insensitivity
+    const eventInfo = getEventConfig(lead.estado_lead);
+    
     if (!eventInfo) {
       // LOGGING: Inform user why this was skipped
-      if (lead.lead_id) await logSkipReason(lead.lead_id, `Status '${lead.estado_lead}' not mapped in constants.ts`);
+      await logSkipReason(lead, `Status '${lead.estado_lead}' not mapped in constants.ts`);
       return NextResponse.json({ message: `Status '${lead.estado_lead}' not mapped to an event` });
     }
 
     // Check Filters (Score & Age)
     const score = lead.score_lead || 0;
     if (score < CONFIG.MIN_LEAD_SCORE) {
-      if (lead.lead_id) await logSkipReason(lead.lead_id, `Skipped: Low Score (${score})`);
+      await logSkipReason(lead, `Skipped: Low Score (${score})`);
       return NextResponse.json({ message: 'Skipped: Low Score' });
     }
 
     const conversionDate = lead.fecha_conversion || lead.updated_at || lead.created_at;
     
     if (utils.isTooOld(conversionDate, CONFIG.MAX_EVENT_AGE_DAYS)) {
-      if (lead.lead_id) await logSkipReason(lead.lead_id, `Skipped: Event too old (> ${CONFIG.MAX_EVENT_AGE_DAYS} days)`);
+      await logSkipReason(lead, `Skipped: Event too old (> ${CONFIG.MAX_EVENT_AGE_DAYS} days)`);
       return NextResponse.json({ message: 'Skipped: Event too old' });
     }
 
     // 5. Generate Event ID using the Effective ID
-    // This ensures that even if lead_id is missing, we generate a consistent hash based on phone/email
     const eventId = utils.generateEventId(effectiveId, lead.estado_lead, conversionDate);
 
     // 6. Deduplication
@@ -166,7 +200,7 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (existingEvent) {
-      if (lead.lead_id) await logSkipReason(lead.lead_id, `Skipped: Event already sent (Deduplicated)`);
+      await logSkipReason(lead, `Skipped: Event already sent (Deduplicated)`);
       return NextResponse.json({ message: 'Skipped: Event already sent (Deduplicated in DB)' });
     }
 
@@ -253,19 +287,11 @@ export async function POST(req: NextRequest) {
 
     if (!metaResponse.ok) {
       console.error('Meta API Error:', metaResult);
-      // Try to log error, using effectiveId if lead_id is missing but making sure it fits column type if necessary
-      // Assuming lead_id column is string.
-      if (lead.lead_id) {
-        await supabase.from('leads_formularios_optimizada')
-          .update({ error_meta: `Meta API Error: ${metaResult.error?.message || 'Unknown'}` })
-          .eq('lead_id', lead.lead_id);
-      }
-        
+      await logSkipReason(lead, `Meta API Error: ${metaResult.error?.message || 'Unknown'}`);
       return NextResponse.json({ error: 'Meta API Failed', details: metaResult }, { status: 500 });
     }
 
     // 9. Success: Update Supabase Tables
-    
     await supabase.from('eventos_enviados_meta').insert({
       event_id: eventId,
       lead_id: effectiveId, // Stores the ID used (could be phone/email if lead_id was null)
@@ -276,12 +302,10 @@ export async function POST(req: NextRequest) {
       fecha_conversion: conversionDate
     });
 
+    // Clear error flag on success
     if (lead.lead_id) {
       await supabase.from('leads_formularios_optimizada')
-        .update({ 
-          error_meta: null,
-          updated_at: new Date().toISOString()
-        })
+        .update({ error_meta: null, updated_at: new Date().toISOString() })
         .eq('lead_id', lead.lead_id);
     }
 
@@ -289,7 +313,7 @@ export async function POST(req: NextRequest) {
       success: true, 
       eventId, 
       events_received: metaResult.events_received,
-      used_id: effectiveId // Helpful for debugging
+      used_id: effectiveId 
     });
 
   } catch (error: any) {
