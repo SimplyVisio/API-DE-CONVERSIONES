@@ -36,6 +36,16 @@ export default function Dashboard() {
     setFetchError(null);
     try {
       const res = await fetch('/api/logs');
+      
+      // Check if the response is actually JSON
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        // If we got HTML (like a 404 or 500 page), read it as text to show a better error
+        const text = await res.text();
+        console.error("Server returned non-JSON response:", text.substring(0, 100)); // Log first 100 chars
+        throw new Error(`Server returned unexpected format (${res.status}). Check Vercel logs.`);
+      }
+
       const data = await res.json();
       
       if (!res.ok) throw new Error(data.error || 'Failed to fetch logs');
@@ -44,6 +54,7 @@ export default function Dashboard() {
       setErrorLogs(data.data.errorLogs);
       setLastRefreshed(new Date());
     } catch (err: any) {
+      console.error("Fetch logs error:", err);
       setFetchError(err.message);
     } finally {
       setLoading(false);
@@ -98,7 +109,10 @@ export default function Dashboard() {
           {fetchError && (
             <div className="bg-red-50 text-red-700 p-4 rounded-lg border border-red-200 flex items-center gap-2">
               <AlertOctagon className="w-5 h-5" />
-              Error connecting to server: {fetchError}
+              <div>
+                <p className="font-bold">Connection Error</p>
+                <p className="text-sm">{fetchError}</p>
+              </div>
             </div>
           )}
 
