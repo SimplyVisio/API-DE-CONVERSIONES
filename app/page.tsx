@@ -31,8 +31,8 @@ export default function Dashboard() {
   const [errorLogs, setErrorLogs] = useState<ErrorLog[]>([]);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  // SQL Generator State
-  const [tableName, setTableName] = useState('leads_formularios_optimizada');
+  // SQL Generator State - Default updated to likely user table
+  const [tableName, setTableName] = useState('leads_formularios_meta');
   const [projectUrl, setProjectUrl] = useState('https://tu-proyecto.vercel.app');
   const [secret, setSecret] = useState('mi_secreto_seguro');
   const [generatedSql, setGeneratedSql] = useState('');
@@ -77,6 +77,7 @@ export default function Dashboard() {
     try {
       const testPayload = {
         type: "INSERT",
+        table: tableName, // Send the currently selected table name
         record: {
           lead_id: `test-lead-${Math.floor(Math.random() * 1000)}`,
           estado_lead: "Nuevo Lead",
@@ -136,10 +137,11 @@ BEGIN
       'old_record', NULL
     );
     
+    -- FIX: 'body' debe ser JSONB, NO texto.
     PERFORM net.http_post(
       url := webhook_url, 
       headers := '{"Content-Type": "application/json"}'::jsonb, 
-      body := payload::text
+      body := payload
     );
     
     RETURN NEW;
@@ -160,7 +162,7 @@ BEGIN
       PERFORM net.http_post(
         url := webhook_url, 
         headers := '{"Content-Type": "application/json"}'::jsonb, 
-        body := payload::text
+        body := payload
       );
     END IF;
     RETURN NEW;
@@ -377,7 +379,7 @@ EXECUTE FUNCTION notify_meta_capi();`;
                   value={tableName}
                   onChange={(e) => setTableName(e.target.value)}
                   className="w-full p-2 border border-gray-300 rounded-md font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                  placeholder="leads_formularios_optimizada"
+                  placeholder="leads_formularios_meta"
                 />
                 <p className="text-xs text-gray-500 mt-1">Make sure this matches your Supabase table EXACTLY.</p>
               </div>

@@ -37,15 +37,16 @@ function getEventConfig(status: string) {
 /**
  * Helper to log "Soft Errors" or "Warnings" to the database.
  * Improved Fallback: If lead_id is missing, tries to update by Email or Phone.
+ * Uses tableName from webhook to write to correct table.
  */
-async function logSkipReason(lead: any, reason: string) {
+async function logSkipReason(lead: any, reason: string, tableName: string = 'leads_formularios_optimizada') {
   const message = `LOG: ${reason}`;
   const now = new Date().toISOString();
   
   try {
     // Strategy 1: Update by Lead ID (Best)
     if (lead.lead_id) {
-      await supabase.from('leads_formularios_optimizada')
+      await supabase.from(tableName)
         .update({ error_meta: message, updated_at: now })
         .eq('lead_id', lead.lead_id);
       return;
@@ -53,7 +54,7 @@ async function logSkipReason(lead: any, reason: string) {
 
     // Strategy 2: Update by Email
     if (lead.email) {
-      await supabase.from('leads_formularios_optimizada')
+      await supabase.from(tableName)
         .update({ error_meta: message, updated_at: now })
         .eq('email', lead.email);
       return;
@@ -61,7 +62,7 @@ async function logSkipReason(lead: any, reason: string) {
 
     // Strategy 3: Update by Phone
     if (lead.telefono) {
-      await supabase.from('leads_formularios_optimizada')
+      await supabase.from(tableName)
         .update({ error_meta: message, updated_at: now })
         .eq('telefono', lead.telefono);
       return;
@@ -86,15 +87,34 @@ export async function GET(req: NextRequest) {
       .limit(20);
 
     // 2. Fetch recent errors (Leads with error_meta not null)
-    const { data: errorLogs, error: errorLogsError } = await supabase
+    // NOTE: By default logs viewer looks at optimized table, but API is flexible.
+    // In a future update we could make this query dynamic too.
+    // For now, we try both common table names or just the main one.
+    let errorLogs = [];
+    const { data: logsOpt, error: errorOpt } = await supabase
       .from('leads_formularios_optimizada')
       .select('lead_id, nombre, email, estado_lead, error_meta, updated_at')
       .not('error_meta', 'is', null)
       .order('updated_at', { ascending: false })
       .limit(20);
+    
+    if (logsOpt) errorLogs = [...logsOpt];
+
+    // Try alternate table if user is using it
+    const { data: logsMeta, error: errorMeta } = await supabase
+      .from('leads_formularios_meta')
+      .select('lead_id, nombre, email, estado_lead, error_meta, updated_at')
+      .not('error_meta', 'is', null)
+      .order('updated_at', { ascending: false })
+      .limit(20);
+    
+    if (logsMeta) {
+      errorLogs = [...errorLogs, ...logsMeta].sort((a, b) => 
+        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      ).slice(0, 20);
+    }
 
     if (successError) console.error('Supabase Success Log Error:', successError);
-    if (errorLogsError) console.error('Supabase Error Log Error:', errorLogsError);
 
     return NextResponse.json({
       success: true,
@@ -132,11 +152,10 @@ export async function POST(req: NextRequest) {
     // Extract records and type
     // Supabase sends: { type: 'INSERT' | 'UPDATE', record: { ... }, old_record: { ... } }
     const { type, record: lead, old_record, table } = body;
+    const sourceTable = table || 'leads_formularios_optimizada';
 
     // Diagnostic Log: Check if table matches expectation
-    if (table && table !== 'leads_formularios_optimizada') {
-      console.warn(`[Webhook Warning] Received event from unexpected table: ${table}`);
-    }
+    // console.log(`[Webhook] Received event from table: ${sourceTable}`);
 
     // --- ID FALLBACK STRATEGY ---
     const effectiveId = lead?.lead_id || lead?.telefono || lead?.email;
@@ -176,21 +195,21 @@ export async function POST(req: NextRequest) {
     
     if (!eventInfo) {
       // LOGGING: Inform user why this was skipped
-      await logSkipReason(lead, `Status '${lead.estado_lead}' not mapped in constants.ts`);
+      await logSkipReason(lead, `Status '${lead.estado_lead}' not mapped in constants.ts`, sourceTable);
       return NextResponse.json({ message: `Status '${lead.estado_lead}' not mapped to an event` });
     }
 
     // Check Filters (Score & Age)
     const score = lead.score_lead || 0;
     if (score < CONFIG.MIN_LEAD_SCORE) {
-      await logSkipReason(lead, `Skipped: Low Score (${score})`);
+      await logSkipReason(lead, `Skipped: Low Score (${score})`, sourceTable);
       return NextResponse.json({ message: 'Skipped: Low Score' });
     }
 
     const conversionDate = lead.fecha_conversion || lead.updated_at || lead.created_at;
     
     if (utils.isTooOld(conversionDate, CONFIG.MAX_EVENT_AGE_DAYS)) {
-      await logSkipReason(lead, `Skipped: Event too old (> ${CONFIG.MAX_EVENT_AGE_DAYS} days)`);
+      await logSkipReason(lead, `Skipped: Event too old (> ${CONFIG.MAX_EVENT_AGE_DAYS} days)`, sourceTable);
       return NextResponse.json({ message: 'Skipped: Event too old' });
     }
 
@@ -205,7 +224,7 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (existingEvent) {
-      await logSkipReason(lead, `Skipped: Event already sent (Deduplicated)`);
+      await logSkipReason(lead, `Skipped: Event already sent (Deduplicated)`, sourceTable);
       return NextResponse.json({ message: 'Skipped: Event already sent (Deduplicated in DB)' });
     }
 
@@ -292,7 +311,7 @@ export async function POST(req: NextRequest) {
 
     if (!metaResponse.ok) {
       console.error('Meta API Error:', metaResult);
-      await logSkipReason(lead, `Meta API Error: ${metaResult.error?.message || 'Unknown'}`);
+      await logSkipReason(lead, `Meta API Error: ${metaResult.error?.message || 'Unknown'}`, sourceTable);
       return NextResponse.json({ error: 'Meta API Failed', details: metaResult }, { status: 500 });
     }
 
@@ -309,7 +328,7 @@ export async function POST(req: NextRequest) {
 
     // Clear error flag on success
     if (lead.lead_id) {
-      await supabase.from('leads_formularios_optimizada')
+      await supabase.from(sourceTable)
         .update({ error_meta: null, updated_at: new Date().toISOString() })
         .eq('lead_id', lead.lead_id);
     }
