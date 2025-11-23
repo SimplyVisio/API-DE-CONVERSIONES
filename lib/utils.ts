@@ -18,9 +18,9 @@ export const normalizeEmail = (email: string | null | undefined): string | undef
 
 /**
  * Normalizes phone number to E.164 format
- * Focuses on Mexican format logic from original Python code
+ * Uses country context if available to better handle 10-digit numbers from US vs Mexico
  */
-export const normalizePhone = (phone: string | number | null | undefined): string | undefined => {
+export const normalizePhone = (phone: string | number | null | undefined, countryHint?: string): string | undefined => {
   if (!phone) return undefined;
   
   // Remove all non-digits and non-plus
@@ -31,6 +31,22 @@ export const normalizePhone = (phone: string | number | null | undefined): strin
   // Already has country code
   if (cleaned.startsWith('+')) return cleaned;
   
+  // Normalize country hint
+  const c = countryHint ? countryHint.trim().toLowerCase() : '';
+
+  // 1. USA / Canada Heuristic
+  // If country says US/Canada, or if missing country but standard US formatting
+  if (c === 'us' || c === 'usa' || c === 'estados unidos' || c === 'united states' || c === 'ca' || c === 'canada') {
+    if (cleaned.length === 10) return `+1${cleaned}`;
+    if (cleaned.length === 11 && cleaned.startsWith('1')) return `+${cleaned}`;
+  }
+
+  // 2. Colombia Heuristic
+  if (c === 'co' || c === 'colombia') {
+     if (cleaned.length === 10) return `+57${cleaned}`;
+  }
+
+  // 3. Mexico Heuristic (Default for this business context)
   // Starts with 52 and has 12 digits (52XXXXXXXXXX)
   if (cleaned.startsWith('52') && cleaned.length === 12) {
     return `+${cleaned}`;
@@ -41,7 +57,7 @@ export const normalizePhone = (phone: string | number | null | undefined): strin
     return `+52${cleaned}`;
   }
   
-  // If > 10 digits, take last 10 and assume MX (fallback from Python logic)
+  // If > 10 digits, take last 10 and assume MX (fallback)
   if (cleaned.length > 10) {
     return `+52${cleaned.slice(-10)}`;
   }

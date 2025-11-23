@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { 
-  Activity, CheckCircle, Terminal, RefreshCw, AlertOctagon, Check, Info, PlayCircle, Copy, Database, Key, Globe
+  Activity, CheckCircle, Terminal, RefreshCw, AlertOctagon, Check, Info, PlayCircle, Copy, Database, Key, Globe, Leaf, Megaphone
 } from 'lucide-react';
 
 interface SuccessLog {
@@ -31,8 +31,8 @@ export default function Dashboard() {
   const [errorLogs, setErrorLogs] = useState<ErrorLog[]>([]);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  // SQL Generator State - Default updated to likely user table
-  const [tableName, setTableName] = useState('leads_formularios_meta');
+  // SQL Generator State - Default updated to user's actual table
+  const [tableName, setTableName] = useState('leads_formularios_optimizada');
   const [projectUrl, setProjectUrl] = useState('https://tu-proyecto.vercel.app');
   const [secret, setSecret] = useState('mi_secreto_seguro');
   const [generatedSql, setGeneratedSql] = useState('');
@@ -200,6 +200,7 @@ EXECUTE FUNCTION notify_meta_capi();`;
 
   const getLogType = (msg: string) => {
     if (!msg) return 'error';
+    if (msg.includes('Orgánico')) return 'organic';
     if (msg.startsWith('LOG:') || msg.includes('Skipped')) return 'warning';
     return 'error';
   };
@@ -332,22 +333,40 @@ EXECUTE FUNCTION notify_meta_capi();`;
                     <thead className="text-xs text-gray-500 uppercase bg-gray-50 sticky top-0">
                       <tr>
                         <th className="px-4 py-3">Time</th>
-                        <th className="px-4 py-3">Status</th>
+                        <th className="px-4 py-3">Type</th>
                         <th className="px-4 py-3">Details</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {errorLogs.map((log) => {
                         const type = getLogType(log.error_meta);
+                        let rowClass = "hover:bg-gray-50";
+                        let textClass = "text-red-600";
+                        let Icon = AlertOctagon;
+
+                        if (type === 'organic') {
+                           textClass = "text-emerald-700";
+                           Icon = Leaf;
+                           rowClass = "bg-emerald-50/50 hover:bg-emerald-50";
+                        } else if (type === 'warning') {
+                           textClass = "text-amber-700";
+                           Icon = Info;
+                        }
+
                         return (
-                          <tr key={log.lead_id || Math.random()} className="hover:bg-gray-50 group">
+                          <tr key={log.lead_id || Math.random()} className={rowClass}>
                             <td className="px-4 py-3 text-gray-600 whitespace-nowrap align-top">
                               {new Date(log.updated_at).toLocaleTimeString()}
                             </td>
                             <td className="px-4 py-3 align-top">
-                              <div className="text-xs text-gray-500">{log.estado_lead}</div>
+                               <div className="flex items-center gap-1">
+                                 <Icon className={`w-3 h-3 ${textClass}`} />
+                                 <span className={`text-xs font-medium ${textClass}`}>
+                                   {type === 'organic' ? 'Organic' : type === 'warning' ? 'Log' : 'Error'}
+                                 </span>
+                               </div>
                             </td>
-                            <td className={`px-4 py-3 text-xs align-top break-words max-w-[200px] ${type === 'warning' ? 'text-amber-700' : 'text-red-600'}`}>
+                            <td className={`px-4 py-3 text-xs align-top break-words max-w-[200px] ${textClass}`}>
                               {log.error_meta ? log.error_meta.replace('LOG:', '') : 'Unknown Error'}
                             </td>
                           </tr>
