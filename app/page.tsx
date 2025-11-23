@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { 
-  Activity, CheckCircle, Terminal, RefreshCw, AlertOctagon, Check, Info, PlayCircle, Copy, Database, Key, Globe, Leaf, Megaphone, ShieldCheck, Fingerprint, Globe2, Cookie
+  Activity, CheckCircle, Terminal, RefreshCw, AlertOctagon, Check, Info, PlayCircle, Copy, Database, Key, Globe, Leaf, Megaphone, ShieldCheck, Fingerprint, Globe2, Cookie, User
 } from 'lucide-react';
 
 interface SuccessLog {
@@ -158,7 +158,8 @@ EXECUTE FUNCTION notify_meta_capi();`;
     if (!msg) return 'error';
     if (msg.includes('Meta Ads - OK')) return 'ads';
     if (msg.includes('Completo')) return 'perfect';
-    if (msg.includes('Falta Cookie')) return 'good';
+    if (msg.includes('IP+UA OK')) return 'good';
+    if (msg.includes('Falta Cookie')) return 'good'; // Backward compatibility
     if (msg.includes('Falta IP/UA')) return 'warning';
     if (msg.includes('LOG:')) return 'info';
     return 'error';
@@ -168,11 +169,16 @@ EXECUTE FUNCTION notify_meta_capi();`;
   const getDataStatus = (msg: string) => {
      const isAds = msg.includes('Meta Ads');
      const missingIP = msg.includes('Falta IP');
-     const missingCookie = msg.includes('Falta FBP') || msg.includes('Falta Cookie');
+     // New logic: If message says "IP+UA OK", then cookie is missing but IP/UA is good.
+     // If message says "Completo", everything is good.
+     // If message says "Falta Cookie" (old), cookie missing.
      
+     const hasIPUA = msg.includes('Completo') || msg.includes('IP+UA') || (msg.includes('Falta Cookie') && !msg.includes('IP'));
+     const hasCookie = msg.includes('Completo');
+
      return {
-        ip: isAds ? 'N/A' : (missingIP ? 'MISSING' : 'OK'),
-        cookie: isAds ? 'N/A' : (missingCookie ? 'MISSING' : 'OK')
+        ip: isAds ? 'N/A' : (hasIPUA ? 'OK' : 'MISSING'),
+        cookie: isAds ? 'N/A' : (hasCookie ? 'OK' : 'MISSING')
      };
   };
 
@@ -222,9 +228,9 @@ EXECUTE FUNCTION notify_meta_capi();`;
                     <thead className="text-xs text-gray-500 uppercase bg-gray-50 sticky top-0 shadow-sm">
                       <tr>
                         <th className="px-4 py-3 w-24">Time</th>
-                        <th className="px-4 py-3 w-32">Status</th>
-                        <th className="px-4 py-3">Data Health</th>
-                        <th className="px-4 py-3">Message</th>
+                        <th className="px-4 py-3 w-32">Result</th>
+                        <th className="px-4 py-3">Match Data Sent</th>
+                        <th className="px-4 py-3">Details</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -250,7 +256,7 @@ EXECUTE FUNCTION notify_meta_capi();`;
                             <td className="px-4 py-3">
                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${badgeClass}`}>
                                  {icon}
-                                 {type === 'ads' ? 'Meta Ads' : type === 'perfect' ? 'Perfect' : type === 'good' ? 'High Quality' : type === 'warning' ? 'Partial Data' : 'Skipped'}
+                                 {type === 'ads' ? 'Meta Ads' : type === 'perfect' ? 'Complete' : type === 'good' ? 'High Quality' : type === 'warning' ? 'Partial' : 'Skipped'}
                                </span>
                             </td>
                             <td className="px-4 py-3">
@@ -261,6 +267,14 @@ EXECUTE FUNCTION notify_meta_capi();`;
                                       status.ip === 'MISSING' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-gray-50 border-gray-200 text-gray-400 opacity-50'}`}>
                                     <Globe2 className="w-3 h-3" />
                                     {status.ip === 'OK' ? 'IP' : status.ip === 'MISSING' ? 'NO IP' : 'N/A'}
+                                  </div>
+
+                                  {/* UA Indicator */}
+                                   <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-mono 
+                                    ${status.ip === 'OK' ? 'bg-green-50 border-green-200 text-green-700' : 
+                                      status.ip === 'MISSING' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-gray-50 border-gray-200 text-gray-400 opacity-50'}`}>
+                                    <User className="w-3 h-3" />
+                                    {status.ip === 'OK' ? 'UA' : 'N/A'}
                                   </div>
 
                                   {/* Cookie Indicator */}

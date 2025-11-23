@@ -199,8 +199,9 @@ export async function POST(req: NextRequest) {
     userData.external_id = [String(effectiveId)];
 
     // IP Address - Strict Checking
-    const rawIp = lead.direccion_ip || lead.ip_address; // Try multiple aliases if they exist in DB
-    if (rawIp && typeof rawIp === 'string' && rawIp.trim().length > 5) {
+    // Prioritize non-null, valid string length
+    const rawIp = lead.direccion_ip || lead.ip_address; 
+    if (rawIp && typeof rawIp === 'string' && rawIp.trim().length >= 7) {
       userData.client_ip_address = rawIp.trim();
     }
 
@@ -214,12 +215,10 @@ export async function POST(req: NextRequest) {
     let trafficType = 'unknown';
 
     // 1. Meta Lead Ads Detection
-    // If source is explicitly Meta_ADS OR lead_id matches Meta's numeric format and we have no cookies
     const isMetaLeadAd = (lead.fuente === 'Meta_ADS') || (!lead.fbclid && !lead.fbp && /^\d+$/.test(String(lead.lead_id)));
 
     if (isMetaLeadAd) {
       trafficType = 'paid_lead_ad';
-      // For Lead Ads, we don't expect cookies, but we send what we have.
     } else {
       trafficType = 'organic_or_web';
     }
@@ -228,9 +227,7 @@ export async function POST(req: NextRequest) {
     if (lead.fbc) {
       userData.fbc = lead.fbc;
     } else if (lead.fbclid) {
-       // Robust FBC construction
        const nowTs = Math.floor(Date.now() / 1000);
-       // Check if it accidentally already has the prefix
        const val = lead.fbclid.startsWith('fb.1.') ? lead.fbclid : `fb.1.${nowTs}.${lead.fbclid}`;
        userData.fbc = val;
        trafficType = 'paid_web';
@@ -261,7 +258,7 @@ export async function POST(req: NextRequest) {
         event_name: eventInfo.event_name,
         event_time: utils.toUnixTimestamp(conversionDate),
         event_id: eventId,
-        action_source: 'website', // Keep 'website' for broad compatibility, or 'system_generated' if strictly Lead Ads
+        action_source: 'website', 
         user_data: userData,
         custom_data: customData,
         event_source_url: lead.url_origen
@@ -300,19 +297,19 @@ export async function POST(req: NextRequest) {
     const hasIP = !!userData.client_ip_address;
     const hasUA = !!userData.client_user_agent;
     const hasFBP = !!userData.fbp;
-    const hasFBC = !!userData.fbc;
 
     if (trafficType === 'paid_lead_ad') {
+      // If Lead Ad, we don't expect IP/UA usually, so just OK
       logMessage = 'LOG: Enviado (Meta Ads - OK)';
     } else {
       // Organic/Web Logic
       if (hasFBP && hasIP && hasUA) {
         logMessage = 'LOG: Enviado (Web - Completo)';
       } else if (!hasFBP && hasIP && hasUA) {
-        // High quality match (IP+UA) but missing cookie
-        logMessage = 'LOG: Enviado (Web - Falta Cookie)';
+        // THIS is the fix: Don't say "Falta Cookie", say "IP+UA OK".
+        // This confirms to the user that critical match data IS present.
+        logMessage = 'LOG: Enviado (Web - IP+UA OK)';
       } else if (!hasIP || !hasUA) {
-        // Missing technical data
         logMessage = 'LOG: Enviado (Web - Falta IP/UA)'; 
       } else {
         logMessage = 'LOG: Enviado (Web - Datos Básicos)';
@@ -330,7 +327,7 @@ export async function POST(req: NextRequest) {
       success: true, 
       eventId, 
       traffic_type: trafficType,
-      quality_flags: { hasIP, hasUA, hasFBP, hasFBC },
+      quality_flags: { hasIP, hasUA, hasFBP },
       events_received: metaResult.events_received 
     });
 
