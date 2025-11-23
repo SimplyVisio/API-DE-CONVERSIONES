@@ -117,10 +117,17 @@ export default function Dashboard() {
   // Update SQL when inputs change
   useEffect(() => {
     const cleanUrl = projectUrl.replace(/\/$/, ''); // remove trailing slash
-    const sql = `-- 1. Habilita la extensión para hacer peticiones HTTP
-CREATE EXTENSION IF NOT EXISTS pg_net;
+    const sql = `-- CÓDIGO CORREGIDO: ${new Date().toLocaleTimeString()}
+-- Si ves errores de "net.http_post arguments", EJECUTA ESTE CÓDIGO COMPLETO.
 
--- 2. Crea la función que enviará los datos a Vercel
+-- 1. Habilita la extensión para hacer peticiones HTTP
+CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA net;
+
+-- 2. ELIMINAR FUNCIÓN ANTIGUA (Evita conflictos de tipos)
+DROP TRIGGER IF EXISTS trigger_meta_capi ON ${tableName};
+DROP FUNCTION IF EXISTS notify_meta_capi();
+
+-- 3. Crea la función corregida (JSONB body)
 CREATE OR REPLACE FUNCTION notify_meta_capi()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -137,7 +144,7 @@ BEGIN
       'old_record', NULL
     );
     
-    -- FIX: 'body' debe ser JSONB, NO texto.
+    -- CORRECCIÓN CRÍTICA: 'body' se pasa directamente como JSONB
     PERFORM net.http_post(
       url := webhook_url, 
       headers := '{"Content-Type": "application/json"}'::jsonb, 
@@ -159,6 +166,7 @@ BEGIN
         'old_record', row_to_json(OLD)
       );
       
+      -- CORRECCIÓN CRÍTICA: 'body' se pasa directamente como JSONB
       PERFORM net.http_post(
         url := webhook_url, 
         headers := '{"Content-Type": "application/json"}'::jsonb, 
@@ -172,9 +180,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 3. Asigna la función a tu tabla: ${tableName}
-DROP TRIGGER IF EXISTS trigger_meta_capi ON ${tableName};
-
+-- 4. Asigna el Trigger a tu tabla: ${tableName}
 CREATE TRIGGER trigger_meta_capi
 AFTER INSERT OR UPDATE ON ${tableName}
 FOR EACH ROW
@@ -363,8 +369,9 @@ EXECUTE FUNCTION notify_meta_capi();`;
               Fix Supabase Connection
             </h2>
             <p className="text-blue-100 mt-1 text-sm">
-              Since the Test works but real events don't, your Supabase Trigger is likely misconfigured.
-              Use this tool to generate the correct SQL.
+              The error <code>function net.http_post(..., body = text) does not exist</code> means your database has the OLD version of the trigger.
+              <br/>
+              <strong>Solution:</strong> Copy and run the updated SQL below. It deletes the old trigger and creates the correct one.
             </p>
           </div>
 
@@ -427,11 +434,11 @@ EXECUTE FUNCTION notify_meta_capi();`;
             <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg">
               <h4 className="text-sm font-bold text-amber-800 mb-1">Instructions:</h4>
               <ol className="list-decimal list-inside text-sm text-amber-700 space-y-1">
-                <li>Verify the <strong>Table Name</strong> above matches your Supabase database exactly (Case sensitive!).</li>
-                <li>Click <strong>Copy SQL</strong>.</li>
-                <li>Go to your Supabase Project &gt; <strong>SQL Editor</strong>.</li>
-                <li>Paste and click <strong>Run</strong>.</li>
-                <li>Modify a lead in that table and check this dashboard.</li>
+                <li>Copy the SQL above (It now includes <code>DROP FUNCTION</code> to fully reset the trigger).</li>
+                <li>Go to Supabase &gt; <strong>SQL Editor</strong>.</li>
+                <li>Paste and run.</li>
+                <li>Verify "Success" message in Supabase.</li>
+                <li>Then modify a lead status again.</li>
               </ol>
             </div>
           </div>
